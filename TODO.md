@@ -17,11 +17,11 @@ This is a step-by-step plan to build the AIAgent-Orchestrator tool. Complete the
 
 ## Phase 2: Configuration and CLI Entrypoint
 
-- [ ] **`config.py`**: Implement a function to load and parse `config.yml` using `PyYAML`. Ensure it uses `yaml.safe_load()`.
-- [ ] **`config.py`**: Create a data class or dictionary structure to hold the configuration, matching the schema in the design document.
-- [ ] **`cli.py`**: Set up the main Typer application.
-- [ ] **`cli.py`**: Create the main `run` command that will instantiate and start the orchestrator.
-- [ ] **`__main__.py`**: Implement the entry point to call the Typer app from `cli.py`. This allows running the module with `python -m ai_orchestrator`.
+- [x] **`config.py`**: Implement a function to load and parse `config.yml` using `PyYAML`. Ensure it uses `yaml.safe_load()`.
+- [x] **`config.py`**: Create a data class or dictionary structure to hold the configuration, matching the schema in the design document.
+- [x] **`cli.py`**: Set up the main Typer application.
+- [x] **`cli.py`**: Create the main `run` command that will instantiate and start the orchestrator.
+- [x] **`__main__.py`**: Implement the entry point to call the Typer app from `cli.py`. This allows running the module with `python -m ai_orchestrator`.
 
 ## Phase 3: Implement Core Components (Bottom-Up)
 
