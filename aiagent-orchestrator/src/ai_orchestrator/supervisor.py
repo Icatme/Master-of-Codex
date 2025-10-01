@@ -1,8 +1,11 @@
 """Supervisor core implementing the orchestrator state machine."""
 from __future__ import annotations
 
+import logging
 from enum import Enum
 from typing import Protocol
+
+from .config import OrchestratorConfig
 
 
 class OrchestratorState(Enum):
@@ -21,9 +24,12 @@ class State(Protocol):
 class OrchestratorContext:
     """Placeholder orchestrator context."""
 
-    def __init__(self) -> None:
+    def __init__(self, config: OrchestratorConfig) -> None:
         self._state: OrchestratorState = OrchestratorState.INITIALIZING
+        self._config = config
+        self._logger = logging.getLogger(__name__)
 
     def run(self) -> None:
         """Placeholder run loop."""
-        _ = self._state
+
+        self._logger.debug("Current state: %s", self._state.value)
