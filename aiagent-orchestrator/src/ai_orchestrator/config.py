@@ -31,8 +31,8 @@ class WorkflowConfig:
 class AnalysisConfig:
     """Configuration for the intelligence layer."""
 
-    provider: str
-    model: str
+    provider: Optional[str] = None
+    model: Optional[str] = None
     enabled: bool = False
 
 
@@ -123,16 +123,26 @@ def load_config(path: Path) -> OrchestratorConfig:
         continue_prompt=continue_prompt,
     )
 
-    provider = analysis_data.get("provider")
-    model = analysis_data.get("model")
     enabled = analysis_data.get("enabled", False)
-
-    if not isinstance(provider, str) or not provider.strip():
-        raise ValueError("'provider' must be a non-empty string")
-    if not isinstance(model, str) or not model.strip():
-        raise ValueError("'model' must be a non-empty string")
     if not isinstance(enabled, bool):
         raise ValueError("'enabled' must be a boolean value when provided")
+
+    provider_raw = analysis_data.get("provider")
+    model_raw = analysis_data.get("model")
+
+    provider: Optional[str]
+    model: Optional[str]
+
+    if enabled:
+        if not isinstance(provider_raw, str) or not provider_raw.strip():
+            raise ValueError("'provider' must be a non-empty string when analysis is enabled")
+        if not isinstance(model_raw, str) or not model_raw.strip():
+            raise ValueError("'model' must be a non-empty string when analysis is enabled")
+        provider = provider_raw
+        model = model_raw
+    else:
+        provider = provider_raw if isinstance(provider_raw, str) and provider_raw.strip() else None
+        model = model_raw if isinstance(model_raw, str) and model_raw.strip() else None
 
     analysis_config = AnalysisConfig(provider=provider, model=model, enabled=enabled)
 

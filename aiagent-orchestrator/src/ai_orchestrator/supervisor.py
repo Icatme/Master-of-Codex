@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import logging
 from enum import Enum
+from pathlib import Path
 from typing import Dict, Optional, Protocol
 
 from .config import OrchestratorConfig
@@ -80,6 +81,11 @@ class OrchestratorContext:
             self._logger.info("Analysis provider disabled in configuration")
             return None
 
+        if not self._config.analysis.provider or not self._config.analysis.model:
+            raise ValueError(
+                "Analysis provider and model must be configured when analysis is enabled"
+            )
+
         provider_name = self._config.analysis.provider.lower()
         if provider_name != "deepseek":
             raise ValueError(f"Unsupported analysis provider: {self._config.analysis.provider}")
@@ -145,9 +151,44 @@ class OrchestratorContext:
 class InitializingState:
     """Prepare the orchestrator before sending commands."""
 
+    _logging_configured: bool = False
+
     def handle(self, context: OrchestratorContext) -> None:
+        self._ensure_logging()
         context.logger.info("Initializing orchestrator components")
         context.transition_to(OrchestratorState.SENDING_INITIAL_PROMPT)
+
+    def _ensure_logging(self) -> None:
+        """Configure logging handlers for console and file output."""
+
+        if self._logging_configured:
+            return
+
+        log_path = Path("orchestrator.log")
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+
+        formatter = logging.Formatter(
+            "%(asctime)s | %(name)s | %(levelname)s | %(message)s"
+        )
+
+        console_handler = logging.StreamHandler()
+        console_handler.setFormatter(formatter)
+        console_handler.setLevel(logging.INFO)
+
+        file_handler = logging.FileHandler(log_path, encoding="utf-8")
+        file_handler.setFormatter(formatter)
+        file_handler.setLevel(logging.INFO)
+
+        root_logger = logging.getLogger()
+        root_logger.setLevel(logging.INFO)
+
+        for handler in list(root_logger.handlers):
+            root_logger.removeHandler(handler)
+
+        root_logger.addHandler(console_handler)
+        root_logger.addHandler(file_handler)
+
+        self._logging_configured = True
 
 
 class SendingInitialPromptState:
