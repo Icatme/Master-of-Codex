@@ -33,6 +33,7 @@ class AnalysisConfig:
 
     provider: str
     model: str
+    enabled: bool = False
 
 
 @dataclass(frozen=True)
@@ -124,13 +125,16 @@ def load_config(path: Path) -> OrchestratorConfig:
 
     provider = analysis_data.get("provider")
     model = analysis_data.get("model")
+    enabled = analysis_data.get("enabled", False)
 
     if not isinstance(provider, str) or not provider.strip():
         raise ValueError("'provider' must be a non-empty string")
     if not isinstance(model, str) or not model.strip():
         raise ValueError("'model' must be a non-empty string")
+    if not isinstance(enabled, bool):
+        raise ValueError("'enabled' must be a boolean value when provided")
 
-    analysis_config = AnalysisConfig(provider=provider, model=model)
+    analysis_config = AnalysisConfig(provider=provider, model=model, enabled=enabled)
 
     return OrchestratorConfig(
         ai_coder=ai_coder_config,
