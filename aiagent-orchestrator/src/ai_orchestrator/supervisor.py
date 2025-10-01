@@ -1,4 +1,6 @@
-"""Supervisor core implementing the orchestrator state machine."""
+"""Supervisor core implementing the orchestrator state machine.
+
+监督核心通过状态机协调各个模块，使编排器能够自动推进任务。"""
 from __future__ import annotations
 
 import logging
@@ -13,7 +15,10 @@ from .workflow_manager import WorkflowManager
 
 
 class OrchestratorState(Enum):
-    """Enumeration of all orchestrator lifecycle states."""
+    """Enumeration of all orchestrator lifecycle states.
+
+    枚举值对应状态机的主要阶段，便于调试与日志记录。
+    """
 
     INITIALIZING = "initializing"
     SENDING_INITIAL_PROMPT = "sending_initial_prompt"
@@ -26,14 +31,20 @@ class OrchestratorState(Enum):
 
 
 class State(Protocol):
-    """Protocol for concrete state handlers."""
+    """Protocol for concrete state handlers.
+
+    约束具体状态类必须实现 ``handle`` 方法。
+    """
 
     def handle(self, context: "OrchestratorContext") -> None:
         """Execute the state logic using ``context``."""
 
 
 class OrchestratorContext:
-    """State-driven supervisor coordinating orchestrator components."""
+    """State-driven supervisor coordinating orchestrator components.
+
+    封装状态机上下文，包括配置、管理器实例及运行时数据。
+    """
 
     def __init__(self, config: OrchestratorConfig) -> None:
         self._config = config
@@ -43,6 +54,7 @@ class OrchestratorContext:
 
         self.process_manager = ProcessManager(config.ai_coder.command)
         self.workflow_manager = WorkflowManager(config.workflow)
+        # 根据配置决定是否创建智能分析提供方。
         self.analysis_provider = self._create_analysis_provider()
 
         self.latest_output: str = ""
@@ -75,7 +87,10 @@ class OrchestratorContext:
         return self._config
 
     def _create_analysis_provider(self) -> Optional[AnalysisProvider]:
-        """Initialise the configured analysis provider if enabled."""
+        """Initialise the configured analysis provider if enabled.
+
+        若未启用分析层，则返回 ``None``，状态机后续逻辑会自动跳过分析。
+        """
 
         if not self._config.analysis.enabled:
             self._logger.info("Analysis provider disabled in configuration")
@@ -109,7 +124,10 @@ class OrchestratorContext:
                 self.transition_to(OrchestratorState.TASK_FAILED)
 
     def transition_to(self, new_state: OrchestratorState) -> None:
-        """Switch the context to ``new_state``."""
+        """Switch the context to ``new_state``.
+
+        更新状态枚举以驱动下一轮循环。若状态不存在则立即报错。
+        """
 
         if new_state not in self._states:
             raise ValueError(f"Unknown orchestrator state: {new_state!r}")
@@ -149,7 +167,10 @@ class OrchestratorContext:
 
 
 class InitializingState:
-    """Prepare the orchestrator before sending commands."""
+    """Prepare the orchestrator before sending commands.
+
+    主要用于配置日志输出，并切换到发送初始提示阶段。
+    """
 
     _logging_configured: bool = False
 
@@ -159,7 +180,10 @@ class InitializingState:
         context.transition_to(OrchestratorState.SENDING_INITIAL_PROMPT)
 
     def _ensure_logging(self) -> None:
-        """Configure logging handlers for console and file output."""
+        """Configure logging handlers for console and file output.
+
+        只在首次运行时配置根日志器，避免重复添加处理器。
+        """
 
         if self._logging_configured:
             return
@@ -192,7 +216,10 @@ class InitializingState:
 
 
 class SendingInitialPromptState:
-    """Send the initial workflow prompt to the managed process."""
+    """Send the initial workflow prompt to the managed process.
+
+    将首个提示词写入子进程，让 AI 工具开始执行任务。
+    """
 
     def handle(self, context: OrchestratorContext) -> None:
         prompt = context.workflow_manager.get_initial_prompt()
@@ -210,7 +237,10 @@ class SendingInitialPromptState:
 
 
 class AwaitingCompletionState:
-    """Monitor the process output until completion is detected."""
+    """Monitor the process output until completion is detected.
+
+    监听输出队列，判断是否出现完成标识或超时等异常。
+    """
 
     def handle(self, context: OrchestratorContext) -> None:
         ai_config = context.config.ai_coder
@@ -236,7 +266,10 @@ class AwaitingCompletionState:
 
 
 class AnalyzingResponseState:
-    """Use the intelligence layer to interpret captured output."""
+    """Use the intelligence layer to interpret captured output.
+
+    根据分析结果决定任务是否完成或需要继续。
+    """
 
     def handle(self, context: OrchestratorContext) -> None:
         if not context.latest_output:
@@ -281,7 +314,10 @@ class AnalyzingResponseState:
 
 
 class SendingContinuePromptState:
-    """Send the continue prompt when more work is required."""
+    """Send the continue prompt when more work is required.
+
+    当分析判定需要继续时，再次发送提示推动子进程进入下一阶段。
+    """
 
     def handle(self, context: OrchestratorContext) -> None:
         prompt = context.workflow_manager.get_continue_prompt()
@@ -299,7 +335,10 @@ class SendingContinuePromptState:
 
 
 class TaskSuccessfulState:
-    """Handle successful completion of the workflow."""
+    """Handle successful completion of the workflow.
+
+    记录成功信息并准备关闭进程。
+    """
 
     def handle(self, context: OrchestratorContext) -> None:
         reasoning = context.outcome_reason or ""
@@ -311,7 +350,10 @@ class TaskSuccessfulState:
 
 
 class TaskFailedState:
-    """Handle terminal failure conditions."""
+    """Handle terminal failure conditions.
+
+    输出失败原因，随后进入清理阶段。
+    """
 
     def handle(self, context: OrchestratorContext) -> None:
         reason = context.failure_reason or context.outcome_reason or "Unknown failure"
@@ -320,7 +362,10 @@ class TaskFailedState:
 
 
 class ShuttingDownState:
-    """Terminate the managed process and end the run loop."""
+    """Terminate the managed process and end the run loop.
+
+    负责回收子进程并停止主循环。
+    """
 
     def handle(self, context: OrchestratorContext) -> None:
         context.logger.info("Shutting down orchestrator")

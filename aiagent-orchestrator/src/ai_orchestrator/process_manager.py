@@ -1,4 +1,6 @@
-"""Process interaction layer for the orchestrator."""
+"""Process interaction layer for the orchestrator.
+
+进程交互层负责启动 AI 工具进程并实现流式输入输出管理。"""
 from __future__ import annotations
 
 import logging
@@ -16,13 +18,19 @@ _StreamItem = Tuple[str, str]
 
 @dataclass
 class ProcessOutput:
-    """Container for captured process output."""
+    """Container for captured process output.
+
+    用于封装从子进程读取到的单行输出，携带来源和文本内容。
+    """
 
     source: str
     text: str
 
     def format(self) -> str:
-        """Return a human-readable representation for logging or analysis."""
+        """Return a human-readable representation for logging or analysis.
+
+        在日志中区分标准输出与标准错误，方便定位问题。
+        """
 
         if self.source == "stdout":
             return self.text
@@ -30,7 +38,9 @@ class ProcessOutput:
 
 
 class ProcessManager:
-    """Manage the lifecycle and I/O of the monitored AI coding tool process."""
+    """Manage the lifecycle and I/O of the monitored AI coding tool process.
+
+    负责创建子进程、维护读取线程以及写入锁，是编排器与外部工具通信的核心。"""
 
     def __init__(self, command: List[str], working_directory: Optional[Path] = None) -> None:
         self._logger = logging.getLogger(__name__)
@@ -39,14 +49,20 @@ class ProcessManager:
 
         self._command = command
         self._working_directory = working_directory
+        # 立即启动子进程并准备接收其标准输出与标准错误。
         self._process: subprocess.Popen[str] = self._launch_process()
         self._output_queue: "queue.Queue[_StreamItem]" = queue.Queue()
+        # 分别为 stdout 和 stderr 启动守护线程，实现非阻塞读取。
         self._stdout_thread = self._start_stream_thread(self._process.stdout, "stdout")
         self._stderr_thread = self._start_stream_thread(self._process.stderr, "stderr")
+        # 写入 stdin 时需要锁，以避免多线程竞争。
         self._stdin_lock = threading.Lock()
 
     def _launch_process(self) -> subprocess.Popen[str]:
-        """Create the subprocess configured for interactive communication."""
+        """Create the subprocess configured for interactive communication.
+
+        通过 ``subprocess.Popen`` 以文本模式启动进程，便于逐行读取输出。
+        """
 
         try:
             process = subprocess.Popen(
@@ -68,7 +84,10 @@ class ProcessManager:
         return process
 
     def _start_stream_thread(self, stream: Optional[TextIO], source: str) -> threading.Thread:
-        """Start a daemon thread to enqueue stream output."""
+        """Start a daemon thread to enqueue stream output.
+
+        创建后台线程，将指定 ``stream`` 的内容放入队列，以供主循环消费。
+        """
 
         if stream is None:
             raise RuntimeError("Process stream is not available")
@@ -83,7 +102,10 @@ class ProcessManager:
         return thread
 
     def _pump_stream(self, stream: TextIO, source: str) -> None:
-        """Continuously read ``stream`` and push lines to the queue."""
+        """Continuously read ``stream`` and push lines to the queue.
+
+        通过 ``iter`` 与哨兵值持续读取，直到流关闭。
+        """
 
         for line in iter(stream.readline, ""):
             cleaned = line.rstrip("\r\n")
@@ -92,7 +114,10 @@ class ProcessManager:
         self._logger.debug("Stream %s closed", source)
 
     def send_command(self, command_text: str) -> None:
-        """Write ``command_text`` to the subprocess stdin."""
+        """Write ``command_text`` to the subprocess stdin.
+
+        发送提示词或指令给子进程，必要时自动补充换行符。
+        """
 
         if self._process.poll() is not None:
             raise RuntimeError("Cannot send command: process has terminated")
@@ -114,7 +139,10 @@ class ProcessManager:
         working_indicator: Optional[str],
         timeout: int,
     ) -> str:
-        """Wait until ``completion_indicator`` is observed in process output."""
+        """Wait until ``completion_indicator`` is observed in process output.
+
+        在设定的超时时间内监听输出，捕捉到完成标识后返回累计文本。
+        """
 
         if timeout <= 0:
             raise ValueError("timeout must be a positive integer")
@@ -135,6 +163,7 @@ class ProcessManager:
             captured.append(ProcessOutput(source=source, text=text).format())
 
             if working_indicator and working_indicator in text:
+                # 当检测到“仍在工作”的提示时，延长等待时间。
                 deadline = time.monotonic() + timeout
 
             if completion_indicator in text:
@@ -146,7 +175,9 @@ class ProcessManager:
                 )
 
     def terminate(self) -> None:
-        """Terminate the subprocess gracefully."""
+        """Terminate the subprocess gracefully.
+
+        优先尝试温和终止，必要时强制结束，防止僵尸进程。"""
 
         if self._process.poll() is not None:
             return

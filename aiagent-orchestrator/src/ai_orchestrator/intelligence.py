@@ -1,4 +1,6 @@
-"""Intelligence layer for orchestrator analysis."""
+"""Intelligence layer for orchestrator analysis.
+
+智能分析层负责与外部推理模型交互，用于判断工作流是否应继续。"""
 from __future__ import annotations
 
 import json
@@ -21,16 +23,24 @@ AnalysisResult = Dict[str, str]
 
 
 class AnalysisProvider(ABC):
-    """Abstract base class for intelligence providers."""
+    """Abstract base class for intelligence providers.
+
+    所有智能分析实现需要继承该抽象基类并实现 :meth:`analyze`。"""
 
     @abstractmethod
     def analyze(self, output: str) -> AnalysisResult:
-        """Analyze the ``output`` from the monitored process."""
+        """Analyze the ``output`` from the monitored process.
+
+        对被监管进程的输出进行分析，返回结构化的决策结果。
+        """
 
 
 @dataclass
 class DeepSeekProvider(AnalysisProvider):
-    """DeepSeek implementation of the :class:`AnalysisProvider` protocol."""
+    """DeepSeek implementation of the :class:`AnalysisProvider` protocol.
+
+    基于 DeepSeek Reasoner 模型的具体实现，使用 OpenAI 兼容 SDK 发送请求。
+    """
 
     model: str
     base_url: str = "https://api.deepseek.com"
@@ -48,11 +58,15 @@ class DeepSeekProvider(AnalysisProvider):
                 "DEEPSEEK_API_KEY environment variable must be set for DeepSeekProvider"
             )
 
+        # 将凭据和基地址传入 OpenAI 客户端，随后重复使用该实例。
         self._client = OpenAI(api_key=key, base_url=self.base_url)
         self._logger = logging.getLogger(__name__)
 
     def analyze(self, output: str) -> AnalysisResult:
-        """Analyze process ``output`` using DeepSeek's reasoning model."""
+        """Analyze process ``output`` using DeepSeek's reasoning model.
+
+        通过构造提示词调用 DeepSeek 推理模型，并解析返回的 JSON 结果。
+        """
 
         prompt = self._build_prompt(output)
         response = self._client.responses.create(
@@ -101,7 +115,10 @@ class DeepSeekProvider(AnalysisProvider):
         return result
 
     def _build_prompt(self, output: str) -> str:
-        """Construct the prompt delivered to the DeepSeek model."""
+        """Construct the prompt delivered to the DeepSeek model.
+
+        将终端输出嵌入中文上下文，提醒模型给出继续或完成的判断。
+        """
 
         return (
             "该AI助手正在自主地根据项目内的AGENTS.md文件执行一系列任务。"
@@ -114,14 +131,19 @@ class DeepSeekProvider(AnalysisProvider):
         )
 
     def _extract_response_text(self, response: object) -> str:
-        """Extract the textual payload from a DeepSeek API response."""
+        """Extract the textual payload from a DeepSeek API response.
+
+        DeepSeek 的响应结构可能因 SDK 版本而异，因此这里做了多重兼容处理。
+        """
 
         # The OpenAI SDK provides ``output_text`` when JSON mode is used.
+        # 当使用 JSON 模式时，``output_text`` 一般直接包含完整文本。
         output_text = getattr(response, "output_text", None)
         if isinstance(output_text, str) and output_text.strip():
             return output_text
 
         # Fallback for responses exposing ``output`` items.
+        # 某些返回结构将文本拆分成 ``output`` 列表，需要逐项拼接。
         output_items = getattr(response, "output", None)
         if isinstance(output_items, list):  # pragma: no cover - depends on SDK structure
             fragments = []
