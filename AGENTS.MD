@@ -16,6 +16,8 @@ This document provides the necessary context and guidelines for an AI coding age
 The goal is to build a Python-based command-line tool named "AIAgent-Orchestrator". This tool will supervise and automate other interactive AI coding CLI tools (like Codex, Claude CLI, etc.).
 
 Its primary function is not to feed tasks to the AI tool, but to monitor its output for a specific "completion indicator" signal. When this signal is detected, the orchestrator will use an external analysis LLM (DeepSeek Reasoner) to decide if the AI tool has finished its overall job or if it needs to be prompted to continue. This creates a "monitor-analyze-incentivize" loop, enabling the AI tool to complete complex, multi-step tasks without human intervention.
+本项目设计文档为"Python AI 编码工具自动化设计.md"
+工作计划位于"ToDO.md"
 
 ## 2\. Core Technologies
 
