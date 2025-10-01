@@ -6,14 +6,14 @@ This is a step-by-step plan to build the AIAgent-Orchestrator tool. Complete the
 
 ## Phase 1: Project Scaffolding and Basic Setup
 
-- [ ] Create the project root directory `aiagent-orchestrator`.
-- [ ] Inside the root, create the `src/ai_orchestrator` directory structure.
-- [ ] Create empty `__init__.py` files in `src/ai_orchestrator` and `tests`.
-- [ ] Create the main application files with placeholder content: `cli.py`, `config.py`, `supervisor.py`, `process_manager.py`, `workflow_manager.py`, `intelligence.py`.
-- [ ] Create a `pyproject.toml` file. Define project metadata and add initial dependencies: `typer`, `pyyaml`, `python-dotenv`.
-- [ ] Create a `requirements.txt` file listing the same dependencies.
-- [ ] Initialize a Git repository in the root directory.
-- [ ] Create a `.gitignore` file to exclude `.venv`, `__pycache__`, `.env`, and other common files.
+- [x] Create the project root directory `aiagent-orchestrator`.
+- [x] Inside the root, create the `src/ai_orchestrator` directory structure.
+- [x] Create empty `__init__.py` files in `src/ai_orchestrator` and `tests`.
+- [x] Create the main application files with placeholder content: `cli.py`, `config.py`, `supervisor.py`, `process_manager.py`, `workflow_manager.py`, `intelligence.py`.
+- [x] Create a `pyproject.toml` file. Define project metadata and add initial dependencies: `typer`, `pyyaml`, `python-dotenv`.
+- [x] Create a `requirements.txt` file listing the same dependencies.
+- [x] Initialize a Git repository in the root directory.
+- [x] Create a `.gitignore` file to exclude `.venv`, `__pycache__`, `.env`, and other common files.
 
 ## Phase 2: Configuration and CLI Entrypoint
 
