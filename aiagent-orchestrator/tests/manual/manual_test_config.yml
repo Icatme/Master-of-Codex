@@ -1,0 +1,17 @@
+ai_coder:
+  command:
+    - python
+    - -u
+    - tests/manual/fake_ai_tool.py
+  completion_indicator: "READY_FOR_NEXT_STEP"
+  response_timeout: 10
+  working_indicator: "Processing"
+
+workflow:
+  initial_prompt: "Run initial task"
+  continue_prompt: "Continue"
+
+analysis:
+  enabled: false
+  provider: null
+  model: null

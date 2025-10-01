@@ -67,6 +67,6 @@ This is a step-by-step plan to build the AIAgent-Orchestrator tool. Complete the
 
 - [x] Integrate the logging setup into the `InitializingState`. Ensure logs are written to both the console and a file (`orchestrator.log`).
 - [x] Refine the main function in `cli.py` to correctly load the config, initialize `OrchestratorContext`, and call its `run()` method.
-- [ ] Write a `README.md` file for the project, explaining what the tool does, how to install it, and how to configure `config.yml`.
-- [ ] Manually test the complete application by running it against a simple interactive script to ensure the loop works as expected.
+- [x] Write a `README.md` file for the project, explaining what the tool does, how to install it, and how to configure `config.yml`.
+- [x] Manually test the complete application by running it against a simple interactive script to ensure the loop works as expected. (Tested with `PYTHONPATH=src python -m ai_orchestrator --config tests/manual/manual_test_config.yml`)
 ```
