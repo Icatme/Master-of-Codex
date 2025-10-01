@@ -1,4 +1,6 @@
-"""Configuration utilities for the AIAgent-Orchestrator."""
+"""Configuration utilities for the AIAgent-Orchestrator.
+
+配置相关的工具函数与数据结构，用于驱动整个编排器。"""
 from __future__ import annotations
 
 import shlex
@@ -11,7 +13,10 @@ import yaml
 
 @dataclass(frozen=True)
 class AICoderConfig:
-    """Configuration for the monitored AI coding tool."""
+    """Configuration for the monitored AI coding tool.
+
+    针对被监管的 AI 编码工具的核心配置，包括启动命令及状态标识。
+    """
 
     command: List[str]
     completion_indicator: str
@@ -21,7 +26,10 @@ class AICoderConfig:
 
 @dataclass(frozen=True)
 class WorkflowConfig:
-    """Configuration for workflow supervision prompts."""
+    """Configuration for workflow supervision prompts.
+
+    包含编排器在不同阶段发送给子进程的提示词内容。
+    """
 
     initial_prompt: str
     continue_prompt: str
@@ -29,7 +37,10 @@ class WorkflowConfig:
 
 @dataclass(frozen=True)
 class AnalysisConfig:
-    """Configuration for the intelligence layer."""
+    """Configuration for the intelligence layer.
+
+    描述是否启用外部推理模型以及所需的提供商信息。
+    """
 
     provider: Optional[str] = None
     model: Optional[str] = None
@@ -38,7 +49,10 @@ class AnalysisConfig:
 
 @dataclass(frozen=True)
 class OrchestratorConfig:
-    """Complete configuration for the orchestrator."""
+    """Complete configuration for the orchestrator.
+
+    汇总所有子配置，方便在运行时进行统一访问。
+    """
 
     ai_coder: AICoderConfig
     workflow: WorkflowConfig
@@ -47,7 +61,10 @@ class OrchestratorConfig:
 
 
 def _normalise_command(command: Any) -> List[str]:
-    """Convert the configured command into an argument list."""
+    """Convert the configured command into an argument list.
+
+    将 ``command`` 转换为 ``subprocess`` 可接受的参数列表，兼容字符串或列表两种形式。
+    """
 
     if isinstance(command, list) and all(isinstance(item, str) for item in command):
         return command
@@ -57,12 +74,16 @@ def _normalise_command(command: Any) -> List[str]:
 
 
 def _load_yaml(path: Path) -> Dict[str, Any]:
-    """Load YAML content from ``path`` and ensure it is a mapping."""
+    """Load YAML content from ``path`` and ensure it is a mapping.
+
+    读取 YAML 配置并校验顶层结构为字典，便于后续字段解析。
+    """
 
     if not path.exists():
         raise FileNotFoundError(f"Configuration file not found: {path}")
 
     with path.open("r", encoding="utf-8") as handle:
+        # ``safe_load`` 可避免执行不安全的 YAML 标签。
         data = yaml.safe_load(handle) or {}
 
     if not isinstance(data, dict):
@@ -72,11 +93,15 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
 
 
 def load_config(path: Path) -> OrchestratorConfig:
-    """Load and validate the orchestrator configuration from ``path``."""
+    """Load and validate the orchestrator configuration from ``path``.
+
+    完成配置文件读取、字段校验，并封装为数据类对象，方便其它模块消费。
+    """
 
     raw_config = _load_yaml(path)
 
     try:
+        # 确保三个关键配置段落全部存在。
         ai_coder_data = raw_config["ai_coder"]
         workflow_data = raw_config["workflow"]
         analysis_data = raw_config["analysis"]
