@@ -1,20 +1,21 @@
 """Workflow supervision utilities."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from .config import WorkflowConfig
 
 
-@dataclass
 class WorkflowManager:
-    """Placeholder workflow manager."""
+    """Provide workflow prompts sourced from configuration."""
 
-    initial_prompt: str = ""
-    continue_prompt: str = ""
+    def __init__(self, config: WorkflowConfig) -> None:
+        self._config = config
 
     def get_initial_prompt(self) -> str:
-        """Return the initial prompt."""
-        return self.initial_prompt
+        """Return the initial workflow prompt."""
+
+        return self._config.initial_prompt
 
     def get_continue_prompt(self) -> str:
-        """Return the continue prompt."""
-        return self.continue_prompt
+        """Return the prompt used to continue the workflow."""
+
+        return self._config.continue_prompt

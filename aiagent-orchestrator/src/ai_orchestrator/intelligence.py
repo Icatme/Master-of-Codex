@@ -1,20 +1,137 @@
 """Intelligence layer for orchestrator analysis."""
 from __future__ import annotations
 
-from typing import Dict, Protocol
+import json
+import logging
+import os
+from abc import ABC, abstractmethod
+from dataclasses import dataclass
+from typing import Dict, Optional
+
+try:
+    from openai import OpenAI
+except ImportError as error:  # pragma: no cover - dependency not installed during tests
+    OpenAI = None  # type: ignore[assignment]
+    _import_error = error
+else:  # pragma: no cover - executed when dependency available
+    _import_error = None
 
 
-class AnalysisProvider(Protocol):
-    """Protocol for analysis providers."""
-
-    def analyze(self, output: str) -> Dict[str, str]:  # noqa: D401
-        """Analyze output and return a result."""
+AnalysisResult = Dict[str, str]
 
 
-class DeepSeekProvider:
-    """Placeholder DeepSeek provider implementation."""
+class AnalysisProvider(ABC):
+    """Abstract base class for intelligence providers."""
 
-    def analyze(self, output: str) -> Dict[str, str]:
-        """Placeholder analyze method."""
-        _ = output
-        return {"status": "unknown", "reasoning": ""}
+    @abstractmethod
+    def analyze(self, output: str) -> AnalysisResult:
+        """Analyze the ``output`` from the monitored process."""
+
+
+@dataclass
+class DeepSeekProvider(AnalysisProvider):
+    """DeepSeek implementation of the :class:`AnalysisProvider` protocol."""
+
+    model: str
+    base_url: str = "https://api.deepseek.com"
+    api_key: Optional[str] = None
+
+    def __post_init__(self) -> None:
+        if OpenAI is None or _import_error is not None:  # pragma: no cover - informative failure path
+            raise RuntimeError(
+                "openai package is required to use DeepSeekProvider"
+            ) from _import_error
+
+        key = self.api_key or os.getenv("DEEPSEEK_API_KEY")
+        if not key:
+            raise RuntimeError(
+                "DEEPSEEK_API_KEY environment variable must be set for DeepSeekProvider"
+            )
+
+        self._client = OpenAI(api_key=key, base_url=self.base_url)
+        self._logger = logging.getLogger(__name__)
+
+    def analyze(self, output: str) -> AnalysisResult:
+        """Analyze process ``output`` using DeepSeek's reasoning model."""
+
+        prompt = self._build_prompt(output)
+        response = self._client.responses.create(
+            model=self.model,
+            input=[
+                {
+                    "role": "system",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": "你是一位资深的软件工程项目经理。你的任务是根据一个AI编码助手的终端输出来评估它的工作进展。",
+                        }
+                    ],
+                },
+                {
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "text",
+                            "text": prompt,
+                        }
+                    ],
+                },
+            ],
+            response_format={"type": "json_object"},
+        )
+
+        raw_content = self._extract_response_text(response)
+        try:
+            payload = json.loads(raw_content)
+        except json.JSONDecodeError as error:
+            self._logger.error("Failed to parse DeepSeek response: %s", raw_content)
+            raise ValueError("DeepSeek response was not valid JSON") from error
+
+        status = payload.get("status")
+        reasoning = payload.get("reasoning", "")
+
+        if status not in {"continue", "finished", "error"}:
+            raise ValueError("DeepSeek response missing required 'status' field")
+
+        if not isinstance(reasoning, str):
+            raise ValueError("DeepSeek response 'reasoning' field must be a string")
+
+        result: AnalysisResult = {"status": status, "reasoning": reasoning}
+        self._logger.debug("DeepSeek analysis result: %s", result)
+        return result
+
+    def _build_prompt(self, output: str) -> str:
+        """Construct the prompt delivered to the DeepSeek model."""
+
+        return (
+            "该AI助手正在自主地根据项目内的AGENTS.md文件执行一系列任务。"
+            "它刚刚完成了一个阶段，并输出了以下内容：\n\n"
+            f"{output}\n\n"
+            "请分析所提供的终端输出。判断AI是已经彻底完成了所有任务，"
+            "还是仅仅完成了一个中间步骤需要继续，或是遇到了无法解决的错误。"
+            "请仅以一个JSON对象作为回应，该对象包含两个键：'status'（字符串，"
+            "值为'continue'、'finished'或'error'之一）和'reasoning'（字符串，简要解释你的判断依据）。"
+        )
+
+    def _extract_response_text(self, response: object) -> str:
+        """Extract the textual payload from a DeepSeek API response."""
+
+        # The OpenAI SDK provides ``output_text`` when JSON mode is used.
+        output_text = getattr(response, "output_text", None)
+        if isinstance(output_text, str) and output_text.strip():
+            return output_text
+
+        # Fallback for responses exposing ``output`` items.
+        output_items = getattr(response, "output", None)
+        if isinstance(output_items, list):  # pragma: no cover - depends on SDK structure
+            fragments = []
+            for item in output_items:
+                content = getattr(item, "content", None)
+                if isinstance(content, list) and content:
+                    text = getattr(content[0], "text", None)
+                    if isinstance(text, str):
+                        fragments.append(text)
+            if fragments:
+                return "".join(fragments)
+
+        raise ValueError("DeepSeek response did not contain textual content")
