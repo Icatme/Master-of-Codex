@@ -94,6 +94,7 @@ ai_coder:
   working_indicator: "Esc to interrupt"
   completion_indicator: "此阶段任务已经完成"
   response_timeout: 180
+  use_pty: true
 
 workflow:
   initial_prompt: "根据AGENTS.md开始工作"
@@ -108,6 +109,7 @@ analysis:
 Key notes:
 
 - `command` can be either a string or a list of arguments. The loader splits strings with `shlex.split`.
+- `use_pty` enables PTY-based interaction on POSIX systems so tools such as the Codex CLI receive keystrokes even without a real terminal. The orchestrator automatically falls back to regular pipes when PTY support is unavailable (for example on Windows).
 - When `analysis.enabled` is `true`, set the `DEEPSEEK_API_KEY` environment variable (or pass `api_key` to `DeepSeekProvider`).
 - When the analysis layer is disabled, the orchestrator assumes the workflow is finished once the completion indicator appears.
 

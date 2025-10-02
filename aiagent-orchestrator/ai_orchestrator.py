@@ -32,6 +32,11 @@ except ImportError as error:  # pragma: no cover - dependency may be missing
 else:  # pragma: no cover - executed when dependency available
     _openai_import_error = None
 
+try:  # pragma: no cover - pty is unavailable on Windows
+    import pty
+except ImportError:  # pragma: no cover - handled gracefully at runtime
+    pty = None  # type: ignore[assignment]
+
 
 # ---------------------------------------------------------------------------
 # Configuration utilities
@@ -46,6 +51,7 @@ class AICoderConfig:
     completion_indicator: str
     response_timeout: int
     working_indicator: Optional[str] = None
+    use_pty: bool = False
 
 
 @dataclass(frozen=True)
@@ -82,6 +88,7 @@ DEFAULT_CONFIG_CONTENT: Dict[str, Any] = {
         "working_indicator": "Esc to interrupt",
         "completion_indicator": "此阶段任务已经完成",
         "response_timeout": 180,
+        "use_pty": True,
     },
     "workflow": {
         "initial_prompt": "根据AGENTS.md开始工作",
@@ -157,6 +164,7 @@ def load_config(path: Path) -> OrchestratorConfig:
     completion_indicator = ai_coder_data.get("completion_indicator")
     response_timeout = ai_coder_data.get("response_timeout")
     working_indicator = ai_coder_data.get("working_indicator")
+    use_pty_raw = ai_coder_data.get("use_pty")
 
     if not isinstance(completion_indicator, str) or not completion_indicator.strip():
         raise ValueError("'completion_indicator' must be a non-empty string")
@@ -165,11 +173,20 @@ def load_config(path: Path) -> OrchestratorConfig:
     if working_indicator is not None and not isinstance(working_indicator, str):
         raise ValueError("'working_indicator' must be a string when provided")
 
+    if use_pty_raw is None:
+        command_name = Path(command[0]).name.lower()
+        use_pty = command_name in {"codex"}
+    elif isinstance(use_pty_raw, bool):
+        use_pty = use_pty_raw
+    else:
+        raise ValueError("'use_pty' must be a boolean value when provided")
+
     ai_coder_config = AICoderConfig(
         command=command,
         completion_indicator=completion_indicator,
         response_timeout=response_timeout,
         working_indicator=working_indicator,
+        use_pty=use_pty,
     )
 
     initial_prompt = workflow_data.get("initial_prompt")
@@ -244,7 +261,13 @@ class ProcessOutput:
 class ProcessManager:
     """Manage the lifecycle and I/O of the monitored AI coding tool process."""
 
-    def __init__(self, command: List[str], working_directory: Optional[Path] = None) -> None:
+    def __init__(
+        self,
+        command: List[str],
+        working_directory: Optional[Path] = None,
+        *,
+        use_pty: bool = False,
+    ) -> None:
         self._logger = logging.getLogger(__name__)
         if not command:
             raise ValueError("command must contain at least one argument")
@@ -252,11 +275,26 @@ class ProcessManager:
         self._command = command
         self._working_directory = working_directory
         self._launch_command = self._prepare_launch_command()
-        self._process: subprocess.Popen[str] = self._launch_process()
-        self._output_queue: "queue.Queue[_StreamItem]" = queue.Queue()
-        self._stdout_thread = self._start_stream_thread(self._process.stdout, "stdout")
-        self._stderr_thread = self._start_stream_thread(self._process.stderr, "stderr")
         self._stdin_lock = threading.Lock()
+        self._use_pty = bool(use_pty and os.name != "nt")
+        if self._use_pty and pty is None:
+            raise RuntimeError("PTY mode is not available on this platform")
+        if use_pty and not self._use_pty:
+            self._logger.info(
+                "PTY mode requested but not supported on this platform; using pipe communication"
+            )
+
+        self._pty_master_fd: Optional[int] = None
+        self._output_queue: "queue.Queue[_StreamItem]" = queue.Queue()
+
+        self._process: subprocess.Popen[Any] = self._launch_process()
+
+        if self._use_pty:
+            self._stdout_thread = self._start_pty_thread()
+            self._stderr_thread = self._stdout_thread
+        else:
+            self._stdout_thread = self._start_stream_thread(self._process.stdout, "stdout")
+            self._stderr_thread = self._start_stream_thread(self._process.stderr, "stderr")
 
     def _prepare_launch_command(self) -> List[str]:
         """Validate the configured command and resolve the executable path."""
@@ -289,24 +327,53 @@ class ProcessManager:
 
         return command
 
-    def _launch_process(self) -> subprocess.Popen[str]:
+    def _launch_process(self) -> subprocess.Popen[Any]:
         """Create the subprocess configured for interactive communication."""
+
+        if self._use_pty:
+            if pty is None:
+                raise RuntimeError("PTY module not available")
+
+            master_fd, slave_fd = pty.openpty()
+            self._pty_master_fd = master_fd
+            stdin = slave_fd
+            stdout = slave_fd
+            stderr = slave_fd
+            text_mode = False
+            encoding: Optional[str] = None
+            bufsize = 0
+        else:
+            stdin = subprocess.PIPE
+            stdout = subprocess.PIPE
+            stderr = subprocess.PIPE
+            text_mode = True
+            encoding = "utf-8"
+            bufsize = 1
 
         try:
             process = subprocess.Popen(
                 self._launch_command,
                 cwd=str(self._working_directory) if self._working_directory else None,
-                stdin=subprocess.PIPE,
-                stdout=subprocess.PIPE,
-                stderr=subprocess.PIPE,
-                text=True,
-                encoding="utf-8",
-                bufsize=1,
+                stdin=stdin,
+                stdout=stdout,
+                stderr=stderr,
+                text=text_mode,
+                encoding=encoding,
+                bufsize=bufsize,
+                close_fds=True,
             )
         except FileNotFoundError as error:
+            if self._use_pty and self._pty_master_fd is not None:
+                os.close(self._pty_master_fd)
+                self._pty_master_fd = None
+            if self._use_pty:
+                os.close(slave_fd)
             raise FileNotFoundError(
                 "Unable to start process: failed to launch configured command"
             ) from error
+
+        if self._use_pty:
+            os.close(slave_fd)
 
         self._logger.debug(
             "Started process PID %s with command %s", process.pid, self._launch_command
@@ -328,6 +395,20 @@ class ProcessManager:
         thread.start()
         return thread
 
+    def _start_pty_thread(self) -> threading.Thread:
+        """Start the background reader when using a PTY."""
+
+        if self._pty_master_fd is None:
+            raise RuntimeError("PTY master file descriptor is not available")
+
+        thread = threading.Thread(
+            target=self._pump_pty_output,
+            name="ProcessManager-pty",
+            daemon=True,
+        )
+        thread.start()
+        return thread
+
     def _pump_stream(self, stream: TextIO, source: str) -> None:
         """Continuously read ``stream`` and push lines to the queue."""
 
@@ -343,20 +424,68 @@ class ProcessManager:
         stream.close()
         self._logger.debug("Stream %s closed", source)
 
+    def _pump_pty_output(self) -> None:
+        """Read data from the PTY master descriptor and enqueue lines."""
+
+        if self._pty_master_fd is None:
+            raise RuntimeError("PTY master file descriptor is not available")
+
+        buffer = ""
+        source = "stdout"
+
+        while True:
+            try:
+                chunk = os.read(self._pty_master_fd, 1024)
+            except OSError as error:
+                self._logger.debug("PTY read failed: %s", error)
+                break
+
+            if not chunk:
+                break
+
+            text = chunk.decode("utf-8", errors="replace")
+            buffer += text
+
+            lines = buffer.splitlines(keepends=True)
+            if lines and not lines[-1].endswith(("\n", "\r")):
+                buffer = lines.pop()
+            else:
+                buffer = ""
+
+            for line in lines:
+                cleaned = line.rstrip("\r\n")
+                self._output_queue.put((source, cleaned))
+                if cleaned:
+                    self._logger.info("[%s] %s", source, cleaned)
+                else:
+                    self._logger.info("[%s]", source)
+
+        if buffer:
+            cleaned = buffer.rstrip("\r\n")
+            if cleaned:
+                self._output_queue.put((source, cleaned))
+                self._logger.info("[%s] %s", source, cleaned)
+
+        self._logger.debug("PTY stream closed")
+
     def send_command(self, command_text: str) -> None:
         """Write ``command_text`` to the subprocess stdin."""
 
         if self._process.poll() is not None:
             raise RuntimeError("Cannot send command: process has terminated")
 
-        if self._process.stdin is None:
-            raise RuntimeError("Process stdin is not available")
-
         payload = command_text if command_text.endswith("\n") else f"{command_text}\n"
 
         with self._stdin_lock:
-            self._process.stdin.write(payload)
-            self._process.stdin.flush()
+            if self._use_pty:
+                if self._pty_master_fd is None:
+                    raise RuntimeError("PTY master file descriptor is not available")
+                os.write(self._pty_master_fd, payload.encode("utf-8"))
+            else:
+                if self._process.stdin is None:
+                    raise RuntimeError("Process stdin is not available")
+                self._process.stdin.write(payload)
+                self._process.stdin.flush()
 
         self._logger.debug("Sent command to process: %s", command_text)
 
@@ -401,6 +530,9 @@ class ProcessManager:
         """Terminate the subprocess gracefully."""
 
         if self._process.poll() is not None:
+            if self._use_pty and self._pty_master_fd is not None:
+                os.close(self._pty_master_fd)
+                self._pty_master_fd = None
             return
 
         self._logger.debug("Terminating process PID %s", self._process.pid)
@@ -412,6 +544,10 @@ class ProcessManager:
             self._logger.warning("Process did not terminate gracefully; killing")
             self._process.kill()
             self._process.wait()
+
+        if self._use_pty and self._pty_master_fd is not None:
+            os.close(self._pty_master_fd)
+            self._pty_master_fd = None
 
 
 # ---------------------------------------------------------------------------
@@ -597,7 +733,9 @@ class OrchestratorContext:
         self._working_directory = working_directory
 
         self.process_manager = ProcessManager(
-            config.ai_coder.command, working_directory=working_directory
+            config.ai_coder.command,
+            working_directory=working_directory,
+            use_pty=config.ai_coder.use_pty,
         )
         self.workflow_manager = WorkflowManager(config.workflow)
         self.analysis_provider = self._create_analysis_provider()
