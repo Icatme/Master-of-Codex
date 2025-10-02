@@ -258,6 +258,28 @@ class ProcessOutput:
         return f"[{self.source}] {self.text}"
 
 
+def _prepare_command_payload(command_text: str, use_pty: bool) -> bytes:
+    """Return the encoded payload that mimics a human pressing Enter.
+
+    Interactive CLI tools connected to a PTY expect carriage returns (``"\r"``)
+    instead of line feeds (``"\n"``) when the Enter key is pressed. Previously
+    the orchestrator always appended a newline which works for pipe based
+    communication but is ignored by tools such as Codex running behind a PTY.
+    Normalising the payload here ensures that we deliver the expected control
+    character regardless of the transport being used.
+    """
+
+    normalised = command_text.replace("\r\n", "\n")
+
+    if use_pty:
+        trimmed = normalised.rstrip("\n")
+        payload = f"{trimmed}\r"
+    else:
+        payload = normalised if normalised.endswith("\n") else f"{normalised}\n"
+
+    return payload.encode("utf-8")
+
+
 class ProcessManager:
     """Manage the lifecycle and I/O of the monitored AI coding tool process."""
 
@@ -474,17 +496,19 @@ class ProcessManager:
         if self._process.poll() is not None:
             raise RuntimeError("Cannot send command: process has terminated")
 
-        payload = command_text if command_text.endswith("\n") else f"{command_text}\n"
-
         with self._stdin_lock:
             if self._use_pty:
                 if self._pty_master_fd is None:
                     raise RuntimeError("PTY master file descriptor is not available")
-                os.write(self._pty_master_fd, payload.encode("utf-8"))
+                os.write(
+                    self._pty_master_fd,
+                    _prepare_command_payload(command_text, use_pty=True),
+                )
             else:
                 if self._process.stdin is None:
                     raise RuntimeError("Process stdin is not available")
-                self._process.stdin.write(payload)
+                payload = _prepare_command_payload(command_text, use_pty=False)
+                self._process.stdin.write(payload.decode("utf-8"))
                 self._process.stdin.flush()
 
         self._logger.debug("Sent command to process: %s", command_text)
