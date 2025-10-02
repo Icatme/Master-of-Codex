@@ -100,7 +100,8 @@ analysis:
 Key notes:
 
 - `command` can be either a string or a list of arguments. The loader splits strings with `shlex.split`.
-- `use_pty` enables PTY-based process interaction on POSIX systems. This is required for Codex CLI so keystrokes are delivered correctly. The orchestrator automatically falls back to standard pipes on platforms without PTY support (e.g., Windows).
+- `use_pty` enables PTY-based process interaction on POSIX systems. This is required for Codex CLI so keystrokes are delivered correctly. The orchestrator automatically falls back to standard pipes on platforms without PTY support.
+- On Windows, install `wexpect` and `pywinpty` to enable ConPTY-based interaction. When these packages are available the orchestrator mirrors real keyboard input via a pseudo-terminal; otherwise it logs a fallback message and uses standard pipes.
 - When `analysis.enabled` is `true`, set the `DEEPSEEK_API_KEY` environment variable (or pass `api_key` to `DeepSeekProvider`).
 - When the analysis layer is disabled, the orchestrator assumes the workflow is finished once the completion indicator appears.
 

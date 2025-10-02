@@ -37,6 +37,14 @@ try:  # pragma: no cover - pty is unavailable on Windows
 except ImportError:  # pragma: no cover - handled gracefully at runtime
     pty = None  # type: ignore[assignment]
 
+if os.name == "nt":  # pragma: no cover - executed only on Windows
+    try:
+        import wexpect
+    except ImportError:  # pragma: no cover - optional runtime dependency
+        wexpect = None  # type: ignore[assignment]
+else:  # pragma: no cover - ensures attribute exists for type checking
+    wexpect = None  # type: ignore[assignment]
+
 
 # ---------------------------------------------------------------------------
 # Configuration utilities
@@ -298,21 +306,33 @@ class ProcessManager:
         self._working_directory = working_directory
         self._launch_command = self._prepare_launch_command()
         self._stdin_lock = threading.Lock()
-        self._use_pty = bool(use_pty and os.name != "nt")
-        if self._use_pty and pty is None:
-            raise RuntimeError("PTY mode is not available on this platform")
-        if use_pty and not self._use_pty:
-            self._logger.info(
-                "PTY mode requested but not supported on this platform; using pipe communication"
-            )
+        self._pty_backend: Optional[str] = None
+        if use_pty:
+            if os.name == "nt":
+                if wexpect is None:
+                    self._logger.info(
+                        "PTY mode requested but not supported on this platform; using pipe communication"
+                    )
+                else:
+                    self._pty_backend = "windows"
+            else:
+                if pty is None:
+                    raise RuntimeError("PTY mode is not available on this platform")
+                self._pty_backend = "posix"
+
+        self._use_pty = self._pty_backend is not None
+        self._using_windows_pty = self._pty_backend == "windows"
+        self._using_posix_pty = self._pty_backend == "posix"
 
         self._pty_master_fd: Optional[int] = None
         self._output_queue: "queue.Queue[_StreamItem]" = queue.Queue()
+        self._process: Any = self._launch_process()
 
-        self._process: subprocess.Popen[Any] = self._launch_process()
-
-        if self._use_pty:
+        if self._using_posix_pty:
             self._stdout_thread = self._start_pty_thread()
+            self._stderr_thread = self._stdout_thread
+        elif self._using_windows_pty:
+            self._stdout_thread = self._start_windows_thread()
             self._stderr_thread = self._stdout_thread
         else:
             self._stdout_thread = self._start_stream_thread(self._process.stdout, "stdout")
@@ -349,10 +369,10 @@ class ProcessManager:
 
         return command
 
-    def _launch_process(self) -> subprocess.Popen[Any]:
+    def _launch_process(self) -> Any:
         """Create the subprocess configured for interactive communication."""
 
-        if self._use_pty:
+        if self._using_posix_pty:
             if pty is None:
                 raise RuntimeError("PTY module not available")
 
@@ -364,6 +384,27 @@ class ProcessManager:
             text_mode = False
             encoding: Optional[str] = None
             bufsize = 0
+        elif self._using_windows_pty:
+            if wexpect is None:
+                raise RuntimeError("wexpect is required for PTY mode on Windows")
+            command_line = subprocess.list2cmdline(self._launch_command)
+            try:
+                child = wexpect.spawn(
+                    command_line,
+                    cwd=str(self._working_directory) if self._working_directory else None,
+                    encoding="utf-8",
+                    timeout=None,
+                )
+            except Exception as error:  # pragma: no cover - depends on runtime environment
+                raise FileNotFoundError(
+                    "Unable to start process: failed to launch configured command"
+                ) from error
+
+            child.delaybeforesend = 0  # type: ignore[assignment]
+            self._logger.debug(
+                "Started wexpect process with command %s", self._launch_command
+            )
+            return child
         else:
             stdin = subprocess.PIPE
             stdout = subprocess.PIPE
@@ -385,16 +426,16 @@ class ProcessManager:
                 close_fds=True,
             )
         except FileNotFoundError as error:
-            if self._use_pty and self._pty_master_fd is not None:
+            if self._using_posix_pty and self._pty_master_fd is not None:
                 os.close(self._pty_master_fd)
                 self._pty_master_fd = None
-            if self._use_pty:
+            if self._using_posix_pty:
                 os.close(slave_fd)
             raise FileNotFoundError(
                 "Unable to start process: failed to launch configured command"
             ) from error
 
-        if self._use_pty:
+        if self._using_posix_pty:
             os.close(slave_fd)
 
         self._logger.debug(
@@ -426,6 +467,20 @@ class ProcessManager:
         thread = threading.Thread(
             target=self._pump_pty_output,
             name="ProcessManager-pty",
+            daemon=True,
+        )
+        thread.start()
+        return thread
+
+    def _start_windows_thread(self) -> threading.Thread:
+        """Start the background reader when using wexpect on Windows."""
+
+        if not self._using_windows_pty:
+            raise RuntimeError("Windows PTY mode is not enabled")
+
+        thread = threading.Thread(
+            target=self._pump_windows_output,
+            name="ProcessManager-wexpect",
             daemon=True,
         )
         thread.start()
@@ -490,20 +545,104 @@ class ProcessManager:
 
         self._logger.debug("PTY stream closed")
 
+    def _pump_windows_output(self) -> None:
+        """Read data from the wexpect PTY and enqueue lines."""
+
+        if not self._using_windows_pty:
+            raise RuntimeError("Windows PTY mode is not enabled")
+
+        buffer = ""
+        source = "stdout"
+
+        while True:
+            try:
+                chunk = self._process.read_nonblocking(size=1024, timeout=1)
+            except AttributeError as error:  # pragma: no cover - depends on runtime
+                self._logger.debug("wexpect read failed: %s", error)
+                break
+            except Exception as error:
+                timeout_exc = getattr(wexpect, "TIMEOUT", None)
+                eof_exc = getattr(wexpect, "EOF", None)
+                if timeout_exc is not None and isinstance(error, timeout_exc):
+                    if not self._is_process_running():
+                        break
+                    continue
+                if eof_exc is not None and isinstance(error, eof_exc):
+                    break
+                self._logger.debug("wexpect read error: %s", error)
+                break
+
+            if not chunk:
+                if not self._is_process_running():
+                    break
+                continue
+
+            buffer += chunk
+            lines = buffer.splitlines(keepends=True)
+            if lines and not lines[-1].endswith(("\n", "\r")):
+                buffer = lines.pop()
+            else:
+                buffer = ""
+
+            for line in lines:
+                cleaned = line.rstrip("\r\n")
+                self._output_queue.put((source, cleaned))
+                if cleaned:
+                    self._logger.info("[%s] %s", source, cleaned)
+                else:
+                    self._logger.info("[%s]", source)
+
+        if buffer:
+            cleaned = buffer.rstrip("\r\n")
+            if cleaned:
+                self._output_queue.put((source, cleaned))
+                self._logger.info("[%s] %s", source, cleaned)
+
+        self._logger.debug("wexpect stream closed")
+
+    def _is_process_running(self) -> bool:
+        """Return ``True`` if the underlying process is still running."""
+
+        if self._using_windows_pty:
+            try:
+                return bool(self._process.isalive())
+            except Exception:  # pragma: no cover - defensive fallback
+                return False
+        return self._process.poll() is None
+
+    def _get_return_code(self) -> Optional[int]:
+        """Return the process exit status when available."""
+
+        if self._using_windows_pty:
+            exit_status = getattr(self._process, "exitstatus", None)
+            if exit_status is not None:
+                return int(exit_status)
+            signal_status = getattr(self._process, "signalstatus", None)
+            if signal_status is not None:
+                return int(signal_status)
+            return None
+        return self._process.returncode
+
     def send_command(self, command_text: str) -> None:
         """Write ``command_text`` to the subprocess stdin."""
 
-        if self._process.poll() is not None:
+        if not self._is_process_running():
             raise RuntimeError("Cannot send command: process has terminated")
 
         with self._stdin_lock:
-            if self._use_pty:
+            if self._using_posix_pty:
                 if self._pty_master_fd is None:
                     raise RuntimeError("PTY master file descriptor is not available")
                 os.write(
                     self._pty_master_fd,
                     _prepare_command_payload(command_text, use_pty=True),
                 )
+            elif self._using_windows_pty:
+                try:
+                    normalised = command_text.replace("\r\n", "\n").rstrip("\n")
+                    self._process.sendline(normalised)
+                except Exception as error:  # pragma: no cover - depends on runtime
+                    raise RuntimeError("Failed to send command via wexpect") from error
             else:
                 if self._process.stdin is None:
                     raise RuntimeError("Process stdin is not available")
@@ -545,16 +684,36 @@ class ProcessManager:
             if completion_indicator in text:
                 return "\n".join(captured)
 
-            if self._process.poll() is not None and self._output_queue.empty():
+            if not self._is_process_running() and self._output_queue.empty():
+                code = self._get_return_code()
                 raise RuntimeError(
-                    f"Process exited unexpectedly with code {self._process.returncode}"
+                    f"Process exited unexpectedly with code {code if code is not None else 'unknown'}"
                 )
 
     def terminate(self) -> None:
         """Terminate the subprocess gracefully."""
 
-        if self._process.poll() is not None:
-            if self._use_pty and self._pty_master_fd is not None:
+        if self._using_windows_pty:
+            if not self._is_process_running():
+                try:
+                    self._process.close(force=True)
+                except Exception:  # pragma: no cover - depends on runtime
+                    pass
+                return
+
+            self._logger.debug("Terminating wexpect process")
+            try:
+                self._process.terminate(force=True)
+            except Exception:  # pragma: no cover - depends on runtime
+                pass
+            try:
+                self._process.close(force=True)
+            except Exception:  # pragma: no cover - depends on runtime
+                pass
+            return
+
+        if not self._is_process_running():
+            if self._using_posix_pty and self._pty_master_fd is not None:
                 os.close(self._pty_master_fd)
                 self._pty_master_fd = None
             return
@@ -569,7 +728,7 @@ class ProcessManager:
             self._process.kill()
             self._process.wait()
 
-        if self._use_pty and self._pty_master_fd is not None:
+        if self._using_posix_pty and self._pty_master_fd is not None:
             os.close(self._pty_master_fd)
             self._pty_master_fd = None
 
