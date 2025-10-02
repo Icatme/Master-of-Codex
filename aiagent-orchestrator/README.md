@@ -22,18 +22,9 @@ AIAgent-Orchestrator is a Python command-line tool that supervises other AI codi
 
 ```
 aiagent-orchestrator/
+├── ai_orchestrator.py
 ├── pyproject.toml
 ├── requirements.txt
-├── src/
-│   └── ai_orchestrator/
-│       ├── __init__.py
-│       ├── __main__.py
-│       ├── cli.py
-│       ├── config.py
-│       ├── intelligence.py
-│       ├── process_manager.py
-│       ├── supervisor.py
-│       └── workflow_manager.py
 └── tests/
     ├── __init__.py
     └── manual/
@@ -125,20 +116,20 @@ Pass the configuration path with the CLI option `--config /path/to/config.yml`. 
 
 ## Running the CLI
 
-After installing dependencies and preparing a configuration file, start the orchestrator via Typer. Either install the package (e.g. `pip install -e .`) or set `PYTHONPATH=src` before invoking the module.
+After installing dependencies and preparing a configuration file, start the orchestrator via Typer. You can invoke the module directly once dependencies are available.
 
 ```bash
-PYTHONPATH=src python -m ai_orchestrator --config config.yml --path .
+python -m ai_orchestrator --config config.yml --path .
 ```
 
 The CLI configures logging on start-up. Messages are printed to stdout and appended to `orchestrator.log`.
 
 ## 运行命令行
 
-安装依赖并准备好配置文件后，可通过 Typer 启动编排器。若未安装为包，请在运行前设置 `PYTHONPATH=src`。
+安装依赖并准备好配置文件后，可直接通过 Typer 启动编排器。
 
 ```bash
-PYTHONPATH=src python -m ai_orchestrator --config config.yml --path .
+python -m ai_orchestrator --config config.yml --path .
 ```
 
 CLI 启动时会完成日志配置，信息将同时输出到终端与 `orchestrator.log`。
@@ -148,10 +139,10 @@ CLI 启动时会完成日志配置，信息将同时输出到终端与 `orchestr
 A lightweight manual integration test is provided under `tests/manual/`. It exercises the entire orchestrator loop against a simulated AI coding tool.
 
 1. Ensure the analysis layer is disabled or provide a DeepSeek API key. The bundled config disables analysis.
-2. From the project root, run the orchestrator with the manual test configuration (set `PYTHONPATH=src` if the package is not installed):
+2. From the project root, run the orchestrator with the manual test configuration:
 
    ```bash
-   PYTHONPATH=src python -m ai_orchestrator --config tests/manual/manual_test_config.yml --path .
+   python -m ai_orchestrator --config tests/manual/manual_test_config.yml --path .
    ```
 
 3. The fake tool prints a short sequence of messages, including the configured completion indicator. The orchestrator should log the prompts being sent, capture the output, and exit successfully after writing `orchestrator.log`.
@@ -163,10 +154,10 @@ Inspect the generated log file and console output to verify the control loop is 
 `tests/manual/` 目录提供了一个轻量级的集成测试示例，可通过模拟的 AI 工具验证完整的编排流程。
 
 1. 确保已禁用分析层，或提前配置好 DeepSeek API Key。示例配置默认禁用分析。
-2. 在项目根目录运行以下命令（若未安装为包，请先设置 `PYTHONPATH=src`）：
+2. 在项目根目录运行以下命令：
 
    ```bash
-   PYTHONPATH=src python -m ai_orchestrator --config tests/manual/manual_test_config.yml --path .
+   python -m ai_orchestrator --config tests/manual/manual_test_config.yml --path .
    ```
 
 3. 虚拟工具会输出一系列信息，包括配置的完成指示。编排器应记录发送的提示、捕获输出，并在写入 `orchestrator.log` 后正常退出。
