@@ -66,7 +66,7 @@ subprocess.Popen接口是必需的选择。与之相对的高层接口subprocess
 为了解决这个问题并实现状态识别，我们将采用**多线程与队列**的方案。一个专门的线程将持续、逐行地读取stdout，并将读取到的行放入一个线程安全的queue.Queue中。主线程随后可以从队列中非阻塞地读取数据，并检查是否存在特定的状态指示符：
 
 * **忙碌指示符 (working\_indicator)**：如 "Esc to interrupt"，表示AI正在处理任务。  
-* **完成指示符 (completion\_indicator)**：如“此阶段任务已经完成”，表示AI已暂停并等待指令。
+* **完成指示符 (completion\_indicator)**：如“Stage completed”，表示AI已暂停并等待指令。
 
 ### **2.3. pexpect：更专业的跨平台解决方案**
 
@@ -234,7 +234,7 @@ ai\_coder:
 
   \# AI完成一个阶段性任务后输出的“完成指示语”  
   \# 工具将持续监控此字符串的出现  
-  completion\_indicator: "此阶段任务已经完成"
+  completion\_indicator: "Stage completed"
 
   \# 等待AI响应的超时时间（秒）  
   response\_timeout: 180

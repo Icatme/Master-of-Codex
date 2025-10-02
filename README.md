@@ -87,7 +87,7 @@ The orchestrator is configured with a YAML file. The schema matches the design d
 ai_coder:
   command: "codex"
   working_indicator: "Esc to interrupt"
-  completion_indicator: "此阶段任务已经完成"
+  completion_indicator: "Stage completed"
   response_timeout: 180  # 设置为 0 或删除该字段即可让编排器无限等待
   use_pty: true
   mirror_output: true
