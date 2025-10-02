@@ -1,8 +1,8 @@
 # AIAgent-Orchestrator
 
-AIAgent-Orchestrator is a Python command-line tool that supervises other AI coding CLIs. It watches the tool's streamed output for configured "working" and "completion" indicators, then asks an external reasoning model whether to keep the workflow going. The implementation follows the architecture captured in [Python%20AI%20编码工具自动化设计.md](../Python%20AI%20编码工具自动化设计.md).
+AIAgent-Orchestrator is a Python command-line tool that supervises other AI coding CLIs. It watches the tool's streamed output for configured "working" and "completion" indicators, then asks an external reasoning model whether to keep the workflow going. The implementation follows the architecture captured in [Python AI 编码工具自动化设计.md](Python%20AI%20编码工具自动化设计.md).
 
-**AIAgent-Orchestrator** 是一个用于监管其他 AI 编码命令行工具的 Python 命令行应用。它会实时监听被监管工具的输出，根据配置的“工作中”与“完成”指示信息判断进展，并在需要时调用外部推理模型来决定是否继续推进任务。项目的架构细节可参考《[Python AI 编码工具自动化设计.md](../Python%20AI%20编码工具自动化设计.md)》文档。
+**AIAgent-Orchestrator** 是一个用于监管其他 AI 编码命令行工具的 Python 应用。它会实时监听被监管工具的输出，根据配置的“工作中”与“完成”指示信息判断进展，并在需要时调用外部推理模型来决定是否继续推进任务。项目架构可参考《[Python AI 编码工具自动化设计.md](Python%20AI%20编码工具自动化设计.md)》文档。
 
 ## Features
 
@@ -21,24 +21,19 @@ AIAgent-Orchestrator is a Python command-line tool that supervises other AI codi
 ## Project layout
 
 ```
-aiagent-orchestrator/
+.
+├── ai_orchestrator.py
 ├── pyproject.toml
 ├── requirements.txt
-├── src/
-│   └── ai_orchestrator/
-│       ├── __init__.py
-│       ├── __main__.py
-│       ├── cli.py
-│       ├── config.py
-│       ├── intelligence.py
-│       ├── process_manager.py
-│       ├── supervisor.py
-│       └── workflow_manager.py
-└── tests/
-    ├── __init__.py
-    └── manual/
-        ├── fake_ai_tool.py
-        └── manual_test_config.yml
+├── tests/
+│   ├── __init__.py
+│   ├── manual/
+│   │   ├── fake_ai_tool.py
+│   │   └── manual_test_config.yml
+│   ├── test_config.py
+│   ├── test_process_manager_payload.py
+│   └── test_process_manager_windows.py
+└── 文档与计划文件 (AGENTS.MD、Python AI 编码工具自动化设计.md、TODO.md 等)
 ```
 
 ## Installation
@@ -93,8 +88,9 @@ ai_coder:
   command: "codex"
   working_indicator: "Esc to interrupt"
   completion_indicator: "此阶段任务已经完成"
-  response_timeout: 180
+  response_timeout: 180  # 设置为 0 或删除该字段即可让编排器无限等待
   use_pty: true
+  mirror_output: true
 
 workflow:
   initial_prompt: "根据AGENTS.md开始工作"
@@ -109,38 +105,38 @@ analysis:
 Key notes:
 
 - `command` can be either a string or a list of arguments. The loader splits strings with `shlex.split`.
-- `use_pty` enables PTY-based interaction on POSIX systems so tools such as the Codex CLI receive keystrokes even without a real terminal. The orchestrator automatically falls back to regular pipes when PTY support is unavailable (for example on Windows).
+- `use_pty` enables PTY-based process interaction on POSIX systems. This is required for Codex CLI so keystrokes are delivered correctly. The orchestrator automatically falls back to standard pipes on platforms without PTY support.
+- On Windows, install `wexpect` and `pywinpty` to enable ConPTY-based interaction. When these packages are available the orchestrator mirrors real keyboard input via a pseudo-terminal; otherwise it logs a fallback message and uses standard pipes.
 - When `analysis.enabled` is `true`, set the `DEEPSEEK_API_KEY` environment variable (or pass `api_key` to `DeepSeekProvider`).
 - When the analysis layer is disabled, the orchestrator assumes the workflow is finished once the completion indicator appears.
-
-Pass the configuration path with the CLI option `--config /path/to/config.yml`. If omitted, `config.yml` in the current working directory is used.
+- Pass the configuration path with the CLI option `--config /path/to/config.yml`. Use `--path /path/to/workspace` to specify the directory where the orchestrated AI tool should run. If these options are omitted, both paths are resolved relative to the current working directory.
 
 ## 配置说明
 
 编排器通过 YAML 文件进行配置，结构与设计文档保持一致，示例见上文代码块。
 
 - `command` 可以是字符串或参数列表，配置加载器会在字符串模式下自动拆分参数。
+- `use_pty` 选项可在 POSIX 系统上启用 PTY 交互；在 Windows 上可安装 `wexpect` 与 `pywinpty` 获得类似能力，否则会自动退回到标准管道。
 - 当 `analysis.enabled` 为 `true` 时，请设置 `DEEPSEEK_API_KEY` 环境变量（或在代码中传入 `api_key`）。
 - 若禁用智能分析层，编排器在检测到完成指示后会直接判定工作流结束。
-
-可使用 `--config /path/to/config.yml` 指定配置路径，默认读取当前工作目录下的 `config.yml`。
+- 可使用 `--config /path/to/config.yml` 指定配置路径，借助 `--path /path/to/workspace` 设置 AI 工具运行的工作目录。若均未提供，这些路径将默认相对于当前工作目录解析。
 
 ## Running the CLI
 
-After installing dependencies and preparing a configuration file, start the orchestrator via Typer. Either install the package (e.g. `pip install -e .`) or set `PYTHONPATH=src` before invoking the module.
+After installing dependencies and preparing a configuration file, start the orchestrator via Typer. You can invoke the module directly once dependencies are available.
 
 ```bash
-PYTHONPATH=src python -m ai_orchestrator --config config.yml
+python -m ai_orchestrator --config config.yml --path .
 ```
 
 The CLI configures logging on start-up. Messages are printed to stdout and appended to `orchestrator.log`.
 
 ## 运行命令行
 
-安装依赖并准备好配置文件后，可通过 Typer 启动编排器。若未安装为包，请在运行前设置 `PYTHONPATH=src`。
+安装依赖并准备好配置文件后，可直接通过 Typer 启动编排器。
 
 ```bash
-PYTHONPATH=src python -m ai_orchestrator --config config.yml
+python -m ai_orchestrator --config config.yml --path .
 ```
 
 CLI 启动时会完成日志配置，信息将同时输出到终端与 `orchestrator.log`。
@@ -150,10 +146,10 @@ CLI 启动时会完成日志配置，信息将同时输出到终端与 `orchestr
 A lightweight manual integration test is provided under `tests/manual/`. It exercises the entire orchestrator loop against a simulated AI coding tool.
 
 1. Ensure the analysis layer is disabled or provide a DeepSeek API key. The bundled config disables analysis.
-2. From the project root, run the orchestrator with the manual test configuration (set `PYTHONPATH=src` if the package is not installed):
+2. From the project root, run the orchestrator with the manual test configuration:
 
    ```bash
-   PYTHONPATH=src python -m ai_orchestrator --config tests/manual/manual_test_config.yml
+   python -m ai_orchestrator --config tests/manual/manual_test_config.yml --path .
    ```
 
 3. The fake tool prints a short sequence of messages, including the configured completion indicator. The orchestrator should log the prompts being sent, capture the output, and exit successfully after writing `orchestrator.log`.
@@ -165,10 +161,10 @@ Inspect the generated log file and console output to verify the control loop is 
 `tests/manual/` 目录提供了一个轻量级的集成测试示例，可通过模拟的 AI 工具验证完整的编排流程。
 
 1. 确保已禁用分析层，或提前配置好 DeepSeek API Key。示例配置默认禁用分析。
-2. 在项目根目录运行以下命令（若未安装为包，请先设置 `PYTHONPATH=src`）：
+2. 在项目根目录运行以下命令：
 
    ```bash
-   PYTHONPATH=src python -m ai_orchestrator --config tests/manual/manual_test_config.yml
+   python -m ai_orchestrator --config tests/manual/manual_test_config.yml --path .
    ```
 
 3. 虚拟工具会输出一系列信息，包括配置的完成指示。编排器应记录发送的提示、捕获输出，并在写入 `orchestrator.log` 后正常退出。
@@ -179,18 +175,20 @@ Inspect the generated log file and console output to verify the control loop is 
 
 - **Process fails to start** – confirm the command in `ai_coder.command` is available on your PATH. The orchestrator raises `FileNotFoundError` if the executable cannot be launched.
 - **Timeout waiting for completion** – increase `response_timeout` or verify the completion indicator string matches the tool's output exactly.
+- **Long periods with no output** – set `response_timeout` to zero (or omit it) to let the orchestrator wait indefinitely between poll cycles.
 - **DeepSeek analysis errors** – ensure `openai` is installed, `DEEPSEEK_API_KEY` is set, and the configured model is supported.
 
 ## 常见问题排查
 
 - **进程无法启动**：确认 `ai_coder.command` 中的可执行文件已在 PATH 中，否则会抛出 `FileNotFoundError`。
 - **等待完成时超时**：可适当增大 `response_timeout`，或确认完成指示字符串与实际输出完全一致。
+- **长时间无输出**：可将 `response_timeout` 设为 0（或删除该字段），让编排器在轮询时无限等待。
 - **DeepSeek 分析报错**：请确保已安装 `openai` 库，并设置 `DEEPSEEK_API_KEY`，同时检查模型名称是否受支持。
 
 ## License
 
-This project is licensed under the MIT License. See [LICENSE](../LICENSE) for details.
+This project is licensed under the MIT License. See [LICENSE](LICENSE) for details.
 
 ## 许可证
 
-本项目采用 MIT 许可证，详情请参阅 [LICENSE](../LICENSE)。
+本项目采用 MIT 许可证，详情请参阅 [LICENSE](LICENSE)。
