@@ -58,7 +58,7 @@ class AICoderConfig:
 
     command: List[str]
     completion_indicator: str
-    response_timeout: int
+    response_timeout: Optional[int]
     working_indicator: Optional[str] = None
     use_pty: bool = False
     mirror_output: bool = True
@@ -173,15 +173,19 @@ def load_config(path: Path) -> OrchestratorConfig:
 
     command = _normalise_command(ai_coder_data.get("command"))
     completion_indicator = ai_coder_data.get("completion_indicator")
-    response_timeout = ai_coder_data.get("response_timeout")
+    response_timeout_value = ai_coder_data.get("response_timeout")
     working_indicator = ai_coder_data.get("working_indicator")
     use_pty_raw = ai_coder_data.get("use_pty")
     mirror_output_raw = ai_coder_data.get("mirror_output", True)
 
     if not isinstance(completion_indicator, str) or not completion_indicator.strip():
         raise ValueError("'completion_indicator' must be a non-empty string")
-    if not isinstance(response_timeout, int) or response_timeout <= 0:
-        raise ValueError("'response_timeout' must be a positive integer")
+    if response_timeout_value is None:
+        response_timeout = None
+    elif isinstance(response_timeout_value, int):
+        response_timeout = response_timeout_value if response_timeout_value > 0 else None
+    else:
+        raise ValueError("'response_timeout' must be an integer or null")
     if working_indicator is not None and not isinstance(working_indicator, str):
         raise ValueError("'working_indicator' must be a string when provided")
 
@@ -697,30 +701,28 @@ class ProcessManager:
         self,
         completion_indicator: str,
         working_indicator: Optional[str],
-        timeout: int,
+        timeout: Optional[int],
     ) -> str:
         """Wait until ``completion_indicator`` is observed in process output."""
 
-        if timeout <= 0:
-            raise ValueError("timeout must be a positive integer")
-
         captured: list[str] = []
-        deadline = time.monotonic() + timeout
+        poll_interval = float(timeout) if timeout and timeout > 0 else 1.0
 
         while True:
-            remaining = deadline - time.monotonic()
-            if remaining <= 0:
-                raise TimeoutError("Timed out waiting for completion indicator")
-
             try:
-                source, text = self._output_queue.get(timeout=remaining)
-            except queue.Empty as error:
-                raise TimeoutError("No output received before timeout") from error
+                source, text = self._output_queue.get(timeout=poll_interval)
+            except queue.Empty:
+                if not self._is_process_running() and self._output_queue.empty():
+                    code = self._get_return_code()
+                    raise RuntimeError(
+                        f"Process exited unexpectedly with code {code if code is not None else 'unknown'}"
+                    )
+                continue
 
             captured.append(ProcessOutput(source=source, text=text).format())
 
             if working_indicator and working_indicator in text:
-                deadline = time.monotonic() + timeout
+                continue
 
             if completion_indicator in text:
                 return "\n".join(captured)
