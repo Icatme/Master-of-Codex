@@ -84,7 +84,7 @@ ai_coder:
   command: "codex"
   working_indicator: "Esc to interrupt"
   completion_indicator: "此阶段任务已经完成"
-  response_timeout: 180
+  response_timeout: 180  # 设置为 0 或删除该字段即可让编排器无限等待
   use_pty: true
 
 workflow:
@@ -170,13 +170,13 @@ Inspect the generated log file and console output to verify the control loop is 
 ## Troubleshooting
 
 - **Process fails to start** – confirm the command in `ai_coder.command` is available on your PATH. The orchestrator raises `FileNotFoundError` if the executable cannot be launched.
-- **Timeout waiting for completion** – increase `response_timeout` or verify the completion indicator string matches the tool's output exactly.
+- **Long periods with no output** – the orchestrator now waits indefinitely. Adjust `response_timeout` (or remove it) to change how frequently the process is polled for status updates.
 - **DeepSeek analysis errors** – ensure `openai` is installed, `DEEPSEEK_API_KEY` is set, and the configured model is supported.
 
 ## 常见问题排查
 
 - **进程无法启动**：确认 `ai_coder.command` 中的可执行文件已在 PATH 中，否则会抛出 `FileNotFoundError`。
-- **等待完成时超时**：可适当增大 `response_timeout`，或确认完成指示字符串与实际输出完全一致。
+- **长时间无输出**：编排器会持续等待结果，可通过调整或移除 `response_timeout` 来改变状态轮询的频率。
 - **DeepSeek 分析报错**：请确保已安装 `openai` 库，并设置 `DEEPSEEK_API_KEY`，同时检查模型名称是否受支持。
 
 ## License
