@@ -96,7 +96,7 @@ DEFAULT_CONFIG_CONTENT: Dict[str, Any] = {
     "ai_coder": {
         "command": "codex",
         "working_indicator": "Esc to interrupt",
-        "completion_indicator": "此阶段任务已经完成",
+        "completion_indicator": "Stage completed",
         "response_timeout": 180,
         "use_pty": True,
         "mirror_output": True,
