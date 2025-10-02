@@ -12,10 +12,10 @@ import ai_orchestrator
 
 
 def test_windows_pty_fallback(monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture) -> None:
-    """Ensure PTY mode gracefully falls back when wexpect is unavailable on Windows."""
+    """Ensure PTY mode gracefully falls back when PyWinPTY is unavailable on Windows."""
 
     monkeypatch.setattr(ai_orchestrator.os, "name", "nt", raising=False)
-    monkeypatch.setattr(ai_orchestrator, "wexpect", None, raising=False)
+    monkeypatch.setattr(ai_orchestrator, "PtyProcess", None, raising=False)
 
     caplog.set_level(logging.INFO)
 
@@ -28,7 +28,7 @@ def test_windows_pty_fallback(monkeypatch: pytest.MonkeyPatch, caplog: pytest.Lo
         assert manager._pty_backend is None  # type: ignore[attr-defined]
         assert not manager._use_pty
         assert any(
-            "PTY mode requested but not supported" in message for message in caplog.messages
+            "PyWinPTY is unavailable; falling back" in message for message in caplog.messages
         )
     finally:
         manager.terminate()
