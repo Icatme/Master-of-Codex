@@ -13,6 +13,7 @@ import queue
 import shlex
 import shutil
 import subprocess
+import sys
 import threading
 import time
 from abc import ABC, abstractmethod
@@ -60,6 +61,7 @@ class AICoderConfig:
     response_timeout: int
     working_indicator: Optional[str] = None
     use_pty: bool = False
+    mirror_output: bool = True
 
 
 @dataclass(frozen=True)
@@ -97,6 +99,7 @@ DEFAULT_CONFIG_CONTENT: Dict[str, Any] = {
         "completion_indicator": "此阶段任务已经完成",
         "response_timeout": 180,
         "use_pty": True,
+        "mirror_output": True,
     },
     "workflow": {
         "initial_prompt": "根据AGENTS.md开始工作",
@@ -173,6 +176,7 @@ def load_config(path: Path) -> OrchestratorConfig:
     response_timeout = ai_coder_data.get("response_timeout")
     working_indicator = ai_coder_data.get("working_indicator")
     use_pty_raw = ai_coder_data.get("use_pty")
+    mirror_output_raw = ai_coder_data.get("mirror_output", True)
 
     if not isinstance(completion_indicator, str) or not completion_indicator.strip():
         raise ValueError("'completion_indicator' must be a non-empty string")
@@ -189,12 +193,18 @@ def load_config(path: Path) -> OrchestratorConfig:
     else:
         raise ValueError("'use_pty' must be a boolean value when provided")
 
+    if isinstance(mirror_output_raw, bool):
+        mirror_output = mirror_output_raw
+    else:
+        raise ValueError("'mirror_output' must be a boolean value when provided")
+
     ai_coder_config = AICoderConfig(
         command=command,
         completion_indicator=completion_indicator,
         response_timeout=response_timeout,
         working_indicator=working_indicator,
         use_pty=use_pty,
+        mirror_output=mirror_output,
     )
 
     initial_prompt = workflow_data.get("initial_prompt")
@@ -297,6 +307,7 @@ class ProcessManager:
         working_directory: Optional[Path] = None,
         *,
         use_pty: bool = False,
+        mirror_output: bool = True,
     ) -> None:
         self._logger = logging.getLogger(__name__)
         if not command:
@@ -306,6 +317,7 @@ class ProcessManager:
         self._working_directory = working_directory
         self._launch_command = self._prepare_launch_command()
         self._stdin_lock = threading.Lock()
+        self._console_lock = threading.Lock()
         self._pty_backend: Optional[str] = None
         if use_pty:
             if os.name == "nt":
@@ -324,6 +336,7 @@ class ProcessManager:
         self._use_pty = self._pty_backend is not None
         self._using_pywinpty = self._pty_backend == "pywinpty"
         self._using_posix_pty = self._pty_backend == "posix"
+        self._mirror_output = mirror_output
 
         self._pty_master_fd: Optional[int] = None
         self._output_queue: "queue.Queue[_StreamItem]" = queue.Queue()
@@ -338,6 +351,24 @@ class ProcessManager:
         else:
             self._stdout_thread = self._start_stream_thread(self._process.stdout, "stdout")
             self._stderr_thread = self._start_stream_thread(self._process.stderr, "stderr")
+
+    def _mirror_output_chunk(self, chunk: str) -> None:
+        """Mirror raw output ``chunk`` to the local console when enabled."""
+
+        if not self._mirror_output or not chunk:
+            return
+
+        with self._console_lock:
+            sys.stdout.write(chunk)
+            sys.stdout.flush()
+
+    def _handle_output_line(self, source: str, text: str) -> None:
+        """Push normalised ``text`` to the queue and emit a log entry."""
+
+        self._output_queue.put((source, text))
+        message = f"[{source}] {text}" if text else f"[{source}]"
+        level = logging.DEBUG if self._mirror_output else logging.INFO
+        self._logger.log(level, message)
 
     def _prepare_launch_command(self) -> List[str]:
         """Validate the configured command and resolve the executable path."""
@@ -510,23 +541,16 @@ class ProcessManager:
             if chunk == "":
                 break
 
+            self._mirror_output_chunk(chunk)
             buffer += chunk
             if chunk in "\r\n":
                 cleaned = buffer.rstrip("\r\n")
-                self._output_queue.put((source, cleaned))
-                if cleaned:
-                    self._logger.info("[%s] %s", source, cleaned)
-                else:
-                    self._logger.info("[%s]", source)
+                self._handle_output_line(source, cleaned)
                 buffer = ""
 
         if buffer:
             cleaned = buffer.rstrip("\r\n")
-            self._output_queue.put((source, cleaned))
-            if cleaned:
-                self._logger.info("[%s] %s", source, cleaned)
-            else:
-                self._logger.info("[%s]", source)
+            self._handle_output_line(source, cleaned)
 
         stream.close()
         self._logger.debug("Stream %s closed", source)
@@ -551,6 +575,7 @@ class ProcessManager:
                 break
 
             text = chunk.decode("utf-8", errors="replace")
+            self._mirror_output_chunk(text)
             buffer += text
 
             lines = buffer.splitlines(keepends=True)
@@ -561,17 +586,12 @@ class ProcessManager:
 
             for line in lines:
                 cleaned = line.rstrip("\r\n")
-                self._output_queue.put((source, cleaned))
-                if cleaned:
-                    self._logger.info("[%s] %s", source, cleaned)
-                else:
-                    self._logger.info("[%s]", source)
+                self._handle_output_line(source, cleaned)
 
         if buffer:
             cleaned = buffer.rstrip("\r\n")
             if cleaned:
-                self._output_queue.put((source, cleaned))
-                self._logger.info("[%s] %s", source, cleaned)
+                self._handle_output_line(source, cleaned)
 
         self._logger.debug("PTY stream closed")
 
@@ -602,6 +622,7 @@ class ProcessManager:
                 time.sleep(0.05)
                 continue
 
+            self._mirror_output_chunk(chunk)
             buffer += chunk
             lines = buffer.splitlines(keepends=True)
             if lines and not lines[-1].endswith(("\n", "\r")):
@@ -611,17 +632,12 @@ class ProcessManager:
 
             for line in lines:
                 cleaned = line.rstrip("\r\n")
-                self._output_queue.put((source, cleaned))
-                if cleaned:
-                    self._logger.info("[%s] %s", source, cleaned)
-                else:
-                    self._logger.info("[%s]", source)
+                self._handle_output_line(source, cleaned)
 
         if buffer:
             cleaned = buffer.rstrip("\r\n")
             if cleaned:
-                self._output_queue.put((source, cleaned))
-                self._logger.info("[%s] %s", source, cleaned)
+                self._handle_output_line(source, cleaned)
 
         self._logger.debug("PyWinPTY stream closed")
 
@@ -944,6 +960,7 @@ class OrchestratorContext:
             config.ai_coder.command,
             working_directory=working_directory,
             use_pty=config.ai_coder.use_pty,
+            mirror_output=config.ai_coder.mirror_output,
         )
         self.workflow_manager = WorkflowManager(config.workflow)
         self.analysis_provider = self._create_analysis_provider()
