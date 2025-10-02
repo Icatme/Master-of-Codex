@@ -11,6 +11,7 @@ import logging
 import os
 import queue
 import shlex
+import shutil
 import subprocess
 import threading
 import time
@@ -250,18 +251,50 @@ class ProcessManager:
 
         self._command = command
         self._working_directory = working_directory
+        self._launch_command = self._prepare_launch_command()
         self._process: subprocess.Popen[str] = self._launch_process()
         self._output_queue: "queue.Queue[_StreamItem]" = queue.Queue()
         self._stdout_thread = self._start_stream_thread(self._process.stdout, "stdout")
         self._stderr_thread = self._start_stream_thread(self._process.stderr, "stderr")
         self._stdin_lock = threading.Lock()
 
+    def _prepare_launch_command(self) -> List[str]:
+        """Validate the configured command and resolve the executable path."""
+
+        executable = self._command[0]
+        command = list(self._command)
+
+        def _is_explicit_path(target: str) -> bool:
+            separators = [os.sep]
+            if os.altsep:
+                separators.append(os.altsep)
+            return any(sep in target for sep in separators)
+
+        if Path(executable).is_absolute() or _is_explicit_path(executable):
+            candidate = Path(executable)
+            if not candidate.exists():
+                raise FileNotFoundError(
+                    "Unable to start process: "
+                    f"executable '{executable}' does not exist"
+                )
+        else:
+            resolved = shutil.which(executable)
+            if resolved is None:
+                raise FileNotFoundError(
+                    "Unable to start process: "
+                    f"'{executable}' was not found on PATH. "
+                    "Install the command or update 'ai_coder.command' in config.yml."
+                )
+            command[0] = resolved
+
+        return command
+
     def _launch_process(self) -> subprocess.Popen[str]:
         """Create the subprocess configured for interactive communication."""
 
         try:
             process = subprocess.Popen(
-                self._command,
+                self._launch_command,
                 cwd=str(self._working_directory) if self._working_directory else None,
                 stdin=subprocess.PIPE,
                 stdout=subprocess.PIPE,
@@ -272,10 +305,12 @@ class ProcessManager:
             )
         except FileNotFoundError as error:
             raise FileNotFoundError(
-                f"Unable to start process: '{self._command[0]}' not found"
+                "Unable to start process: failed to launch configured command"
             ) from error
 
-        self._logger.debug("Started process PID %s with command %s", process.pid, self._command)
+        self._logger.debug(
+            "Started process PID %s with command %s", process.pid, self._launch_command
+        )
         return process
 
     def _start_stream_thread(self, stream: Optional[TextIO], source: str) -> threading.Thread:
