@@ -74,6 +74,26 @@ class OrchestratorConfig:
     raw: Dict[str, Any]
 
 
+DEFAULT_CONFIG_FILENAME = "config.yml"
+DEFAULT_CONFIG_CONTENT: Dict[str, Any] = {
+    "ai_coder": {
+        "command": "codex",
+        "working_indicator": "Esc to interrupt",
+        "completion_indicator": "此阶段任务已经完成",
+        "response_timeout": 180,
+    },
+    "workflow": {
+        "initial_prompt": "根据AGENTS.md开始工作",
+        "continue_prompt": "Continue.",
+    },
+    "analysis": {
+        "enabled": False,
+        "provider": "deepseek",
+        "model": "deepseek-reasoner",
+    },
+}
+
+
 def _normalise_command(command: Any) -> List[str]:
     """Convert the configured command into an argument list."""
 
@@ -97,6 +117,19 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
         raise ValueError("Configuration file must define a mapping at the top level")
 
     return data
+
+
+def write_default_config(path: Path) -> None:
+    """Generate a default configuration file at ``path``."""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open("w", encoding="utf-8") as handle:
+        yaml.safe_dump(
+            DEFAULT_CONFIG_CONTENT,
+            handle,
+            allow_unicode=True,
+            sort_keys=False,
+        )
 
 
 def load_config(path: Path) -> OrchestratorConfig:
@@ -810,12 +843,15 @@ def _configure_logging() -> None:
 
 @app.command()
 def run(
-    config_path: Path = typer.Option(
-        Path("config.yml"),
+    config_path: Optional[Path] = typer.Option(
+        None,
         "--config",
         "-c",
-        help="Path to the orchestrator configuration file.",
-        show_default=True,
+        help=(
+            "Path to the orchestrator configuration file. Defaults to"
+            f" {DEFAULT_CONFIG_FILENAME} inside the workspace when omitted."
+        ),
+        show_default=False,
     ),
     workspace_path: Path = typer.Option(
         Path.cwd(),
@@ -844,11 +880,26 @@ def run(
 
     workspace = workspace.resolve()
 
-    resolved_path = config_path.expanduser()
-    if not resolved_path.is_absolute():
-        resolved_path = (workspace / resolved_path).resolve()
+    if config_path is None:
+        resolved_path = (workspace / DEFAULT_CONFIG_FILENAME).resolve()
+        if not resolved_path.exists():
+            try:
+                write_default_config(resolved_path)
+            except OSError as error:
+                raise typer.BadParameter(
+                    f"Unable to create default configuration at {resolved_path}: {error}",
+                    param_hint="--config",
+                ) from error
+            logger.info("Generated default configuration: %s", resolved_path)
+        else:
+            logger.info("Using existing default configuration: %s", resolved_path)
     else:
-        resolved_path = resolved_path.resolve()
+        resolved_path = config_path.expanduser()
+        if not resolved_path.is_absolute():
+            resolved_path = (workspace / resolved_path).resolve()
+        else:
+            resolved_path = resolved_path.resolve()
+        logger.info("Using configuration file: %s", resolved_path)
 
     try:
         config: OrchestratorConfig = load_config(resolved_path)
@@ -871,6 +922,8 @@ def main() -> NoReturn:
 
 
 __all__ = [
+    "DEFAULT_CONFIG_CONTENT",
+    "DEFAULT_CONFIG_FILENAME",
     "AICoderConfig",
     "AnalysisConfig",
     "AnalysisProvider",
@@ -886,6 +939,7 @@ __all__ = [
     "load_config",
     "main",
     "run",
+    "write_default_config",
 ]
 
 
