@@ -22,6 +22,7 @@ class AICoderConfig:
     completion_indicator: str
     response_timeout: int
     working_indicator: Optional[str] = None
+    working_directory: Optional[Path] = None
 
 
 @dataclass(frozen=True)
@@ -92,6 +93,35 @@ def _load_yaml(path: Path) -> Dict[str, Any]:
     return data
 
 
+def _resolve_working_directory(
+    config_path: Path, working_directory_raw: Optional[str]
+) -> Optional[Path]:
+    """Resolve the optional working directory relative to ``config_path``.
+
+    若配置文件提供了 ``working_directory`` 字段，则需要将其转换为 ``Path`` 对象，
+    并校验其是否为已存在的目录。若该字段缺失，则返回 ``None``。
+    """
+
+    if working_directory_raw is None:
+        return None
+
+    if not isinstance(working_directory_raw, str) or not working_directory_raw.strip():
+        raise ValueError("'working_directory' must be a non-empty string when provided")
+
+    candidate = Path(working_directory_raw).expanduser()
+    if not candidate.is_absolute():
+        candidate = (config_path.parent / candidate).resolve()
+
+    if not candidate.exists():
+        raise ValueError(f"Configured working directory does not exist: {candidate}")
+    if not candidate.is_dir():
+        raise ValueError(
+            f"Configured working directory must be a directory: {candidate}"
+        )
+
+    return candidate
+
+
 def load_config(path: Path) -> OrchestratorConfig:
     """Load and validate the orchestrator configuration from ``path``.
 
@@ -120,6 +150,7 @@ def load_config(path: Path) -> OrchestratorConfig:
     completion_indicator = ai_coder_data.get("completion_indicator")
     response_timeout = ai_coder_data.get("response_timeout")
     working_indicator = ai_coder_data.get("working_indicator")
+    working_directory_raw = ai_coder_data.get("working_directory")
 
     if not isinstance(completion_indicator, str) or not completion_indicator.strip():
         raise ValueError("'completion_indicator' must be a non-empty string")
@@ -128,11 +159,14 @@ def load_config(path: Path) -> OrchestratorConfig:
     if working_indicator is not None and not isinstance(working_indicator, str):
         raise ValueError("'working_indicator' must be a string when provided")
 
+    working_directory = _resolve_working_directory(path, working_directory_raw)
+
     ai_coder_config = AICoderConfig(
         command=command,
         completion_indicator=completion_indicator,
         response_timeout=response_timeout,
         working_indicator=working_indicator,
+        working_directory=working_directory,
     )
 
     initial_prompt = workflow_data.get("initial_prompt")

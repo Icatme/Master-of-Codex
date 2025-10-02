@@ -52,7 +52,9 @@ class OrchestratorContext:
         self._state_enum: OrchestratorState = OrchestratorState.INITIALIZING
         self._running = False
 
-        self.process_manager = ProcessManager(config.ai_coder.command)
+        self.process_manager = ProcessManager(
+            config.ai_coder.command, config.ai_coder.working_directory
+        )
         self.workflow_manager = WorkflowManager(config.workflow)
         # 根据配置决定是否创建智能分析提供方。
         self.analysis_provider = self._create_analysis_provider()

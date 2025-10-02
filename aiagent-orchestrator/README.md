@@ -91,6 +91,7 @@ The orchestrator is configured with a YAML file. The schema matches the design d
 # config.yml
 ai_coder:
   command: "codex"
+  working_directory: "/path/to/repository"
   working_indicator: "Esc to interrupt"
   completion_indicator: "此阶段任务已经完成"
   response_timeout: 180
@@ -108,6 +109,8 @@ analysis:
 Key notes:
 
 - `command` can be either a string or a list of arguments. The loader splits strings with `shlex.split`.
+- `working_directory` is optional. When provided, the orchestrator changes into the directory before launching the AI tool. Relative
+  paths are resolved against the configuration file's location, so you can keep configs alongside repositories.
 - When `analysis.enabled` is `true`, set the `DEEPSEEK_API_KEY` environment variable (or pass `api_key` to `DeepSeekProvider`).
 - When the analysis layer is disabled, the orchestrator assumes the workflow is finished once the completion indicator appears.
 
@@ -118,6 +121,8 @@ Pass the configuration path with the CLI option `--config /path/to/config.yml`. 
 编排器通过 YAML 文件进行配置，结构与设计文档保持一致，示例见上文代码块。
 
 - `command` 可以是字符串或参数列表，配置加载器会在字符串模式下自动拆分参数。
+- `working_directory` 为可选项。若提供该字段，编排器会在启动 AI 工具前切换到指定目录。相对路径会基于配置文件所在目录进
+  行解析，因此可以将配置与仓库放在一起管理。
 - 当 `analysis.enabled` 为 `true` 时，请设置 `DEEPSEEK_API_KEY` 环境变量（或在代码中传入 `api_key`）。
 - 若禁用智能分析层，编排器在检测到完成指示后会直接判定工作流结束。
 
@@ -125,20 +130,20 @@ Pass the configuration path with the CLI option `--config /path/to/config.yml`. 
 
 ## Running the CLI
 
-After installing dependencies and preparing a configuration file, start the orchestrator via Typer. Either install the package (e.g. `pip install -e .`) or set `PYTHONPATH=src` before invoking the module.
+After installing dependencies and preparing a configuration file, start the orchestrator via Typer. Either install the package (e.g. `pip install -e .`) or set `PYTHONPATH=src` before invoking the module. Provide the target repository path as the first positional argument so the orchestrator switches into that directory before launching the monitored AI tool.
 
 ```bash
-PYTHONPATH=src python -m ai_orchestrator --config config.yml
+PYTHONPATH=src python -m ai_orchestrator . --config config.yml
 ```
 
 The CLI configures logging on start-up. Messages are printed to stdout and appended to `orchestrator.log`.
 
 ## 运行命令行
 
-安装依赖并准备好配置文件后，可通过 Typer 启动编排器。若未安装为包，请在运行前设置 `PYTHONPATH=src`。
+安装依赖并准备好配置文件后，可通过 Typer 启动编排器。若未安装为包，请在运行前设置 `PYTHONPATH=src`。运行命令时请先提供目标代码库路径，编排器会在启动被监管的 AI 工具前切换到该目录。
 
 ```bash
-PYTHONPATH=src python -m ai_orchestrator --config config.yml
+PYTHONPATH=src python -m ai_orchestrator . --config config.yml
 ```
 
 CLI 启动时会完成日志配置，信息将同时输出到终端与 `orchestrator.log`。
@@ -148,10 +153,10 @@ CLI 启动时会完成日志配置，信息将同时输出到终端与 `orchestr
 A lightweight manual integration test is provided under `tests/manual/`. It exercises the entire orchestrator loop against a simulated AI coding tool.
 
 1. Ensure the analysis layer is disabled or provide a DeepSeek API key. The bundled config disables analysis.
-2. From the project root, run the orchestrator with the manual test configuration (set `PYTHONPATH=src` if the package is not installed):
+2. From the project root, run the orchestrator with the manual test configuration (set `PYTHONPATH=src` if the package is not installed). Pass `.` as the repository argument so the orchestrator works inside the current directory:
 
    ```bash
-   PYTHONPATH=src python -m ai_orchestrator --config tests/manual/manual_test_config.yml
+   PYTHONPATH=src python -m ai_orchestrator . --config tests/manual/manual_test_config.yml
    ```
 
 3. The fake tool prints a short sequence of messages, including the configured completion indicator. The orchestrator should log the prompts being sent, capture the output, and exit successfully after writing `orchestrator.log`.
@@ -163,10 +168,10 @@ Inspect the generated log file and console output to verify the control loop is 
 `tests/manual/` 目录提供了一个轻量级的集成测试示例，可通过模拟的 AI 工具验证完整的编排流程。
 
 1. 确保已禁用分析层，或提前配置好 DeepSeek API Key。示例配置默认禁用分析。
-2. 在项目根目录运行以下命令（若未安装为包，请先设置 `PYTHONPATH=src`）：
+2. 在项目根目录运行以下命令（若未安装为包，请先设置 `PYTHONPATH=src`），同时传入 `.` 作为仓库参数，使编排器在当前目录内工作：
 
    ```bash
-   PYTHONPATH=src python -m ai_orchestrator --config tests/manual/manual_test_config.yml
+   PYTHONPATH=src python -m ai_orchestrator . --config tests/manual/manual_test_config.yml
    ```
 
 3. 虚拟工具会输出一系列信息，包括配置的完成指示。编排器应记录发送的提示、捕获输出，并在写入 `orchestrator.log` 后正常退出。

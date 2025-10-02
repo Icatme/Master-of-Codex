@@ -3,6 +3,7 @@ ai_coder:
     - python
     - -u
     - tests/manual/fake_ai_tool.py
+  working_directory: ../..
   completion_indicator: "READY_FOR_NEXT_STEP"
   response_timeout: 10
   working_indicator: "Processing"
