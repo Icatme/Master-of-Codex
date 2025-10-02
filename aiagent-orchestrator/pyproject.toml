@@ -19,4 +19,7 @@ dependencies = [
 ]
 
 [project.scripts]
-aiagent-orchestrator = "ai_orchestrator.cli:main"
+aiagent-orchestrator = "ai_orchestrator:main"
+
+[tool.setuptools]
+py-modules = ["ai_orchestrator"]
