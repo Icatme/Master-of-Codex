@@ -334,6 +334,12 @@ class ProcessManager:
         for line in iter(stream.readline, ""):
             cleaned = line.rstrip("\r\n")
             self._output_queue.put((source, cleaned))
+            # Mirror the subprocess output to the orchestrator logs so that
+            # users can observe the underlying tool's responses in real time.
+            if cleaned:
+                self._logger.info("[%s] %s", source, cleaned)
+            else:
+                self._logger.info("[%s]", source)
         stream.close()
         self._logger.debug("Stream %s closed", source)
 
