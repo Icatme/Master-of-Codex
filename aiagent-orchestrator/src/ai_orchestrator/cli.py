@@ -34,6 +34,13 @@ def run(
         help="Path to the orchestrator configuration file.",
         show_default=True,
     ),
+    workspace_path: Path = typer.Option(
+        Path.cwd(),
+        "--path",
+        "-p",
+        help="Working directory used when invoking the AI coding tool.",
+        show_default=True,
+    ),
 ) -> None:
     """Start the orchestrator using the provided configuration.
 
@@ -44,7 +51,25 @@ def run(
     logger = logging.getLogger(__name__)
 
     # 支持 ``~`` 等路径缩写，方便在不同平台上运行。
+    workspace = workspace_path.expanduser()
+
+    if not workspace.exists():
+        raise typer.BadParameter(
+            f"Workspace directory does not exist: {workspace}", param_hint="--path"
+        )
+    if not workspace.is_dir():
+        raise typer.BadParameter(
+            f"Workspace path is not a directory: {workspace}",
+            param_hint="--path",
+        )
+
+    workspace = workspace.resolve()
+
     resolved_path = config_path.expanduser()
+    if not resolved_path.is_absolute():
+        resolved_path = (workspace / resolved_path).resolve()
+    else:
+        resolved_path = resolved_path.resolve()
 
     try:
         # 解析配置文件并转换为结构化的数据类。
@@ -54,10 +79,11 @@ def run(
     except ValueError as error:
         raise typer.BadParameter(f"Invalid configuration: {error}", param_hint="--config") from error
 
+    logger.info("Using workspace directory: %s", workspace)
     logger.info("Launching orchestrator with command: %s", " ".join(config.ai_coder.command))
 
     # 构造状态机上下文并运行整个生命周期。
-    context = OrchestratorContext(config)
+    context = OrchestratorContext(config, working_directory=workspace)
     context.run()
 
 

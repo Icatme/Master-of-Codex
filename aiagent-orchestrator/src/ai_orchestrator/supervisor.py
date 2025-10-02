@@ -46,13 +46,18 @@ class OrchestratorContext:
     封装状态机上下文，包括配置、管理器实例及运行时数据。
     """
 
-    def __init__(self, config: OrchestratorConfig) -> None:
+    def __init__(
+        self, config: OrchestratorConfig, working_directory: Optional[Path] = None
+    ) -> None:
         self._config = config
         self._logger = logging.getLogger(__name__)
         self._state_enum: OrchestratorState = OrchestratorState.INITIALIZING
         self._running = False
+        self._working_directory = working_directory
 
-        self.process_manager = ProcessManager(config.ai_coder.command)
+        self.process_manager = ProcessManager(
+            config.ai_coder.command, working_directory=working_directory
+        )
         self.workflow_manager = WorkflowManager(config.workflow)
         # 根据配置决定是否创建智能分析提供方。
         self.analysis_provider = self._create_analysis_provider()
@@ -85,6 +90,12 @@ class OrchestratorContext:
         """Return the orchestrator configuration."""
 
         return self._config
+
+    @property
+    def working_directory(self) -> Optional[Path]:
+        """Return the workspace directory used for process execution."""
+
+        return self._working_directory
 
     def _create_analysis_provider(self) -> Optional[AnalysisProvider]:
         """Initialise the configured analysis provider if enabled.
@@ -175,11 +186,11 @@ class InitializingState:
     _logging_configured: bool = False
 
     def handle(self, context: OrchestratorContext) -> None:
-        self._ensure_logging()
+        self._ensure_logging(context)
         context.logger.info("Initializing orchestrator components")
         context.transition_to(OrchestratorState.SENDING_INITIAL_PROMPT)
 
-    def _ensure_logging(self) -> None:
+    def _ensure_logging(self, context: OrchestratorContext) -> None:
         """Configure logging handlers for console and file output.
 
         只在首次运行时配置根日志器，避免重复添加处理器。
@@ -188,7 +199,8 @@ class InitializingState:
         if self._logging_configured:
             return
 
-        log_path = Path("orchestrator.log")
+        base_directory = context.working_directory or Path.cwd()
+        log_path = (base_directory / "orchestrator.log").resolve()
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
         formatter = logging.Formatter(
